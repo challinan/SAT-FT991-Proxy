@@ -247,6 +247,7 @@ void MainWindow::startServices()
         &MainWindow::radioRequestCompleted);
 
     m_radioPollTimer = new QTimer(this);
+    Q_ASSERT(m_radioPollTimer);
     m_radioPollTimer->setInterval(1000);
 
     connect(

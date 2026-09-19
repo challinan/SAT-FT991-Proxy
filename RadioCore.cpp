@@ -59,6 +59,23 @@ RadioResponse RadioCore::execute(const RadioRequest &request)
                 return AckResponse {};
             }
 
+            else if constexpr (
+                std::is_same_v<T, GetRfPower>)
+            {
+                return RfPowerResponse {
+                    m_state.rfPowerPercent
+                };
+            }
+
+            else if constexpr (
+                std::is_same_v<T, SetRfPower>)
+            {
+                m_state.rfPowerPercent =
+                    std::clamp(req.percent, 0, 100);
+
+                return AckResponse {};
+            }
+
             else
             {
                 return ErrorResponse {

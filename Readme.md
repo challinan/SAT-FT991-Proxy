@@ -74,6 +74,7 @@ Don't let the UI directly manipulate RadioState.
 
 # Symmetrical Architecture
 
+
                    RadioRequest
                         │
              ┌──────────┴──────────┐
@@ -87,4 +88,64 @@ Don't let the UI directly manipulate RadioState.
                               RadioResponse
 
 
-I'm at "Great, Let's see what it looks like"
+# Architecture refinement
+The main idea is to make the simulator and real FT-991A look identical t
+o the CI-V side, including asynchronous completion.
+
+RadioCore is the state/behavior engine, while:
+RadioCoreBackend is the simulator-facing radio.
+
+
+                    S.A.T.
+                      │
+                   CI-V bytes
+                      │
+                CivProtocol
+                      │
+                 RadioRequest
+                      │
+              CivProxyController
+                      │
+                RadioBackend
+                 /          \
+                /            \
+       RadioCoreBackend    Ft991Client
+         simulator          real radio
+                \            /
+                 \          /
+                RadioResponse
+                      │
+              CivProxyController
+                      │
+                CivProtocol
+                      │
+               CI-V response
+               
+# Example command flow
+S.A.T.
+  │
+  │ FE FE A2 E0 14 0A FD
+  ▼
+CivProtocol
+  │
+  │ GetRfPower
+  ▼
+CivProxyController
+  │
+  ▼
+Ft991Client
+  │
+  │ PC;
+  ▼
+FT-991A
+  │
+  │ PC040;
+  ▼
+RfPowerResponse { 40 }
+  │
+  ▼
+CivProtocol
+  │
+  │ FE FE E0 A2 14 0A 01 28 FD
+  ▼
+S.A.T.

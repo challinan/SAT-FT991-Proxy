@@ -61,7 +61,7 @@ macx: LIBS += -L/Library/Frameworks/GStreamer.framework/Libraries -lgstreamer-1.
 INCLUDEPATH += /Library/Frameworks/GStreamer.framework/Headers
 
 DISTFILES += \
-    Design.md \
+    Readme.md \
     TODO.txt
 
 RESOURCES += \
