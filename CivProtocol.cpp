@@ -117,6 +117,7 @@ void CivProtocol::feedBytes(
 
         qDebug() << "CivProtocol::feedBytes(): Frame received:" << frame.toHex();
         emit frameReceived(frame);
+        // emit stateChanged(true  );
 
         processFrame(frame);
     }
@@ -219,6 +220,12 @@ void CivProtocol::processCommand(
         byteAt(
             context.command,
             0);
+
+    // On the first valid frame, set the status LED
+    if ( !first_valid_frame ) {
+        emit firstValidFrameReceived();
+        first_valid_frame = true;
+    }
 
     switch (command)
     {

@@ -109,7 +109,7 @@
     <property name="geometry">
      <rect>
       <x>480</x>
-      <y>329</y>
+      <y>349</y>
       <width>81</width>
       <height>32</height>
      </rect>
@@ -122,7 +122,7 @@
     <property name="geometry">
      <rect>
       <x>590</x>
-      <y>330</y>
+      <y>350</y>
       <width>81</width>
       <height>32</height>
      </rect>
@@ -135,7 +135,7 @@
     <property name="geometry">
      <rect>
       <x>700</x>
-      <y>330</y>
+      <y>350</y>
       <width>81</width>
       <height>32</height>
      </rect>
@@ -147,8 +147,8 @@
    <widget class="QLabel" name="freqLabelMain">
     <property name="geometry">
      <rect>
-      <x>520</x>
-      <y>0</y>
+      <x>10</x>
+      <y>280</y>
       <width>101</width>
       <height>21</height>
      </rect>
@@ -163,8 +163,8 @@
    <widget class="QLabel" name="freqLabelSub">
     <property name="geometry">
      <rect>
-      <x>520</x>
-      <y>40</y>
+      <x>10</x>
+      <y>320</y>
       <width>101</width>
       <height>21</height>
      </rect>
@@ -179,8 +179,8 @@
    <widget class="QLabel" name="lcdFrequencyMain">
     <property name="geometry">
      <rect>
-      <x>650</x>
-      <y>0</y>
+      <x>140</x>
+      <y>280</y>
       <width>121</width>
       <height>24</height>
      </rect>
@@ -195,8 +195,8 @@
    <widget class="QLabel" name="lcdFrequencySub">
     <property name="geometry">
      <rect>
-      <x>650</x>
-      <y>40</y>
+      <x>140</x>
+      <y>320</y>
       <width>121</width>
       <height>24</height>
      </rect>
@@ -211,8 +211,8 @@
    <widget class="QLabel" name="rfPower_label">
     <property name="geometry">
      <rect>
-      <x>520</x>
-      <y>70</y>
+      <x>10</x>
+      <y>350</y>
       <width>101</width>
       <height>21</height>
      </rect>
@@ -227,8 +227,8 @@
    <widget class="QLabel" name="labelPower">
     <property name="geometry">
      <rect>
-      <x>650</x>
-      <y>70</y>
+      <x>140</x>
+      <y>350</y>
       <width>121</width>
       <height>24</height>
      </rect>
@@ -368,6 +368,68 @@
      <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
     </property>
    </widget>
+   <widget class="QLabel" name="labelSAT_Status">
+    <property name="geometry">
+     <rect>
+      <x>630</x>
+      <y>0</y>
+      <width>81</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>S.A.T Status</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+    </property>
+   </widget>
+   <widget class="QLabel" name="labelFT991_Status">
+    <property name="geometry">
+     <rect>
+      <x>610</x>
+      <y>30</y>
+      <width>101</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>FT991A Status</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+    </property>
+   </widget>
+   <widget class="LedWidget" name="ledSAT_ready" native="true">
+    <property name="geometry">
+     <rect>
+      <x>730</x>
+      <y>0</y>
+      <width>21</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="ledColor" stdset="0">
+     <color>
+      <red>209</red>
+      <green>209</green>
+      <blue>209</blue>
+     </color>
+    </property>
+    <property name="isOn" stdset="0">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="LedWidget" name="ledFT991A_ready" native="true">
+    <property name="geometry">
+     <rect>
+      <x>730</x>
+      <y>30</y>
+      <width>21</width>
+      <height>21</height>
+     </rect>
+    </property>
+   </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
@@ -381,6 +443,14 @@
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>LedWidget</class>
+   <extends>QWidget</extends>
+   <header>ledwidget.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

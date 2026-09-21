@@ -3,18 +3,25 @@
 #include "ui_mainwindow.h"
 #include <QFontDatabase>
 
-#define ENABLE_FT991_SIM    // Radio not available, use the simulator
+// #define ENABLE_FT991_SIM    // Radio not available, use the simulator
 
 #ifdef ENABLE_FT991_SIM
 #include "RadioCoreBackend.h"
 #else
 #include "Ft991Client.h"
 #endif
+#include <QOperatingSystemVersion>
+#include <QLibraryInfo>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
+
+    qDebug() << QOperatingSystemVersion::current();
+    qDebug() << QLibraryInfo::version();
+    qDebug() << QLibraryInfo::path(QLibraryInfo::LibrariesPath);
+
     qRegisterMetaType<RadioRequest>(
         "RadioRequest");
 
@@ -88,6 +95,13 @@ void MainWindow::initializeUiLabels() {
     updateSATFrequencyMain(145.0);
     updateSATFrequencySub(435.0);
     ui->labelPower->setText("50%");
+
+    // Initialize the status LEDs
+    ui->ledSAT_ready->setLedColor(Qt::red);
+    ui->ledSAT_ready->setIsOn(true);
+    ui->ledFT991A_ready->setLedColor(Qt::red);
+    ui->ledFT991A_ready->setIsOn(true);
+
 }
 
 void MainWindow::on_run_pButton_clicked() {
@@ -178,10 +192,12 @@ void MainWindow::startServices()
         throw std::runtime_error("MainWindow::startServices(): Fatal: FT991A Serial Port open failed");
     }
 
-    m_radioBackend =
+    m_ft991Client =
         new Ft991Client(
             m_ft991Serial->device(),
             this);
+
+    m_radioBackend = m_ft991Client;
 
     m_ft991Client->disableAutoInformation();
     m_radioBackend->setTimeout(500);
@@ -246,6 +262,15 @@ void MainWindow::startServices()
         this,
         &MainWindow::radioRequestCompleted);
 
+        connect(
+            m_civ,
+            &CivProtocol::firstValidFrameReceived,
+            this,
+            [this]() {
+                ui->ledSAT_ready->setLedColor(Qt::green);
+            }
+            );
+
     m_radioPollTimer = new QTimer(this);
     Q_ASSERT(m_radioPollTimer);
     m_radioPollTimer->setInterval(1000);
@@ -308,7 +333,7 @@ bool MainWindow::openCivSerial()
     SerialPort::Settings settings;
 
     settings.portName =
-        "/dev/cu.PL2303G-USBtoUART1410";
+        "/dev/cu.PL2303G-USBtoUART140";
 
     settings.baudRate =
         QSerialPort::Baud9600;
@@ -357,7 +382,7 @@ bool MainWindow::openFT991Serial()
     SerialPort::Settings settings;
 
     settings.portName =
-        "/dev/cu.xyz";
+        "/dev/cu.usbserial-00C45B130";
 
     settings.baudRate =
         QSerialPort::Baud38400;

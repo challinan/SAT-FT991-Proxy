@@ -25,6 +25,7 @@ SOURCES += \
     SerialPort.cpp \
     ft991a_proxy.cpp \
     idle_sleep_notifications.c \
+    ledwidget.cpp \
     main.cpp \
     mainwindow.cpp \
     config_object.cpp
@@ -44,6 +45,7 @@ HEADERS += \
     RadioTypes.h \
     SerialPort.h \
     ft991a_proxy.h \
+    ledwidget.h \
     mainwindow.h \
     config_object.h
 
@@ -56,9 +58,6 @@ qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
-# GStreamer support
-macx: LIBS += -L/Library/Frameworks/GStreamer.framework/Libraries -lgstreamer-1.0.0 -lglib-2.0.0 -lgobject-2.0.0
-INCLUDEPATH += /Library/Frameworks/GStreamer.framework/Headers
 
 DISTFILES += \
     Readme.md \

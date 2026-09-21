@@ -65,6 +65,8 @@ public slots:
 
 signals:
 
+    void firstValidFrameReceived();
+
     //
     // Send to CivProxyController.
     //
@@ -98,6 +100,7 @@ signals:
 private:
 
     quint8 m_radioAddress = 0xA2;
+    bool first_valid_frame = 0;
 
     QByteArray m_rxBuffer;
 
