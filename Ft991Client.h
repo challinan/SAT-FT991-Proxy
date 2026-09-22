@@ -7,6 +7,7 @@
 #include <QIODevice>
 #include <QQueue>
 #include <QTimer>
+#include <QSerialPort>
 
 #include <optional>
 
@@ -49,6 +50,9 @@ public:
     //
     void disableAutoInformation();
 
+public slots:
+    void feedBytes(
+        const QByteArray &data);
 
 signals:
 
@@ -76,7 +80,6 @@ signals:
 
 private slots:
 
-    void onReadyRead();
     void onTimeout();
 
 

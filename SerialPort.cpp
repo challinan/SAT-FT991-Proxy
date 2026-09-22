@@ -6,25 +6,43 @@
 SerialPort::SerialPort(
     QObject *parent)
     : QObject(parent),
-    m_port(this)
+    m_serialport(this)
 {
     connect(
-        &m_port,
+        &m_serialport,
         &QSerialPort::readyRead,
         this,
         &SerialPort::onReadyRead);
 
 
     connect(
-        &m_port,
+        &m_serialport,
         &QSerialPort::errorOccurred,
         this,
         &SerialPort::onError);
+
+    connect(
+        &m_serialport,
+        &QIODevice::aboutToClose,
+        this,
+        [this]()
+        {
+            qWarning()
+            << "*************** QSerialPort ABOUT TO CLOSE ******************"
+            << "port =" << m_serialport.portName()
+            << "this =" << this
+            << "QSerialPort =" << &m_serialport
+            << "isOpen =" << m_serialport.isOpen()
+            << "openMode =" << m_serialport.openMode()
+            << "error =" << m_serialport.error()
+            << "errorString =" << m_serialport.errorString();
+        });
 }
 
 
 SerialPort::~SerialPort()
 {
+    qDebug() << "SerialPort::~SerialPort(): serial port has been DESTROYED by destructor call ************";
     close();
 }
 
@@ -39,33 +57,35 @@ SerialPort::~SerialPort()
 bool SerialPort::open(
     const Settings &settings)
 {
-    if (m_port.isOpen())
-        m_port.close();
+    if (m_serialport.isOpen()) {
+        Q_ASSERT("CALLING OPEN WHEN THE PORT IS ALREADY OPENED **********+++++++++++++**********");
+        m_serialport.close();
+    }
 
 
     m_settings = settings;
 
 
-    m_port.setPortName(
+    m_serialport.setPortName(
         settings.portName);
 
-    m_port.setBaudRate(
+    m_serialport.setBaudRate(
         settings.baudRate);
 
-    m_port.setDataBits(
+    m_serialport.setDataBits(
         settings.dataBits);
 
-    m_port.setParity(
+    m_serialport.setParity(
         settings.parity);
 
-    m_port.setStopBits(
+    m_serialport.setStopBits(
         settings.stopBits);
 
-    m_port.setFlowControl(
+    m_serialport.setFlowControl(
         settings.flowControl);
 
 
-    if (!m_port.open(
+    if (!m_serialport.open(
             QIODevice::ReadWrite))
     {
         emit errorOccurred(
@@ -73,20 +93,20 @@ bool SerialPort::open(
                 "Unable to open %1: %2")
                 .arg(
                     settings.portName,
-                    m_port.errorString()));
+                    m_serialport.errorString()));
 
         return false;
     }
-
+    qDebug() << "SerialPort::open(): Serial Port was just opened" << m_serialport.isOpen();
 
     //
     // Set modem-control lines only after
     // successfully opening the device.
     //
-    m_port.setDataTerminalReady(
+    m_serialport.setDataTerminalReady(
         settings.dtr);
 
-    m_port.setRequestToSend(
+    m_serialport.setRequestToSend(
         settings.rts);
 
 
@@ -94,10 +114,11 @@ bool SerialPort::open(
     // Throw away anything stale that was sitting
     // in the driver buffers before we opened.
     //
-    m_port.clear(
+    m_serialport.clear(
         QSerialPort::AllDirections);
 
 
+    qDebug() << "SerialPort::open(): about to call emit opened()" << m_serialport.isOpen();
     emit opened();
 
     return true;
@@ -108,11 +129,11 @@ bool SerialPort::open(
  */
 void SerialPort::close()
 {
-    if (!m_port.isOpen())
+    qDebug() << "SerialPort::close(): Serial Port has been CLOSED *********";
+    if (!m_serialport.isOpen())
         return;
 
-
-    m_port.close();
+     m_serialport.close();
 
     emit closed();
 }
@@ -120,31 +141,31 @@ void SerialPort::close()
 
 bool SerialPort::isOpen() const
 {
-    return m_port.isOpen();
+    return m_serialport.isOpen();
 }
 
 QIODevice *SerialPort::device()
 {
-    return &m_port;
+    return &m_serialport;
 }
 
 
 const QIODevice *SerialPort::device() const
 {
-    return &m_port;
+    return &m_serialport;
 }
 
 
 QSerialPort *SerialPort::serialPort()
 {
-    return &m_port;
+    return &m_serialport;
 }
 
 
 const QSerialPort *
 SerialPort::serialPort() const
 {
-    return &m_port;
+    return &m_serialport;
 }
 
 /*
@@ -173,7 +194,7 @@ SerialPort::serialPort() const
 void SerialPort::onReadyRead()
 {
     QByteArray data =
-        m_port.readAll();
+        m_serialport.readAll();
 
     if (data.isEmpty())
         return;
@@ -181,7 +202,7 @@ void SerialPort::onReadyRead()
 
     emit bytesReceived(data);
 
-    emit dataReceived(data);
+    emit bytesReceived(data);
 }
 
 /*
@@ -196,18 +217,19 @@ void SerialPort::onReadyRead()
 qint64 SerialPort::write(
     const QByteArray &data)
 {
-    if (!m_port.isOpen())
+    if (!m_serialport.isOpen())
     {
         emit errorOccurred(
             QStringLiteral(
-                "Attempt to write to closed serial port"));
+                "SerialPort::write(): Attempt to write to closed serial port"));
 
         return -1;
     }
 
+    qDebug() << "SerialPort::write(): Entered with" << data;
 
     qint64 result =
-        m_port.write(data);
+        m_serialport.write(data);
 
 
     if (result < 0)
@@ -216,7 +238,7 @@ qint64 SerialPort::write(
             QStringLiteral(
                 "Serial write failed: %1")
                 .arg(
-                    m_port.errorString()));
+                    m_serialport.errorString()));
 
         return result;
     }
@@ -257,8 +279,8 @@ void SerialPort::onError(
         QStringLiteral(
             "Serial port %1: %2")
             .arg(
-                m_port.portName(),
-                m_port.errorString());
+                m_serialport.portName(),
+                m_serialport.errorString());
 
 
     emit errorOccurred(
@@ -271,13 +293,13 @@ void SerialPort::onError(
  */
 QString SerialPort::portName() const
 {
-    return m_port.portName();
+    return m_serialport.portName();
 }
 
 
 QString SerialPort::errorString() const
 {
-    return m_port.errorString();
+    return m_serialport.errorString();
 }
 
 

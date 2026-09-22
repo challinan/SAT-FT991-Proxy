@@ -77,7 +77,7 @@ signals:
 
     void closed();
 
-    void dataReceived(QByteArray data);
+    void byteReceived(QByteArray data);
 
     void errorOccurred(QString message);
 
@@ -103,7 +103,7 @@ private slots:
 
 private:
 
-    QSerialPort m_port;
+    QSerialPort m_serialport;
 
     Settings m_settings;
 };

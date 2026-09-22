@@ -126,7 +126,7 @@ void MainWindow::startServices()
     // S.A.T. serial RX
     connect(
         m_civSerial,
-        &SerialPort::dataReceived,
+        &SerialPort::bytesReceived,
         m_civ,
         &CivProtocol::feedBytes);
 
@@ -192,6 +192,7 @@ void MainWindow::startServices()
         throw std::runtime_error("MainWindow::startServices(): Fatal: FT991A Serial Port open failed");
     }
 
+    qDebug() << "****************This is device()" << m_ft991Serial->device();
     m_ft991Client =
         new Ft991Client(
             m_ft991Serial->device(),
@@ -199,8 +200,14 @@ void MainWindow::startServices()
 
     m_radioBackend = m_ft991Client;
 
-    m_ft991Client->disableAutoInformation();
+    // m_ft991Client->disableAutoInformation();
     m_radioBackend->setTimeout(500);
+
+    connect(
+        m_ft991Serial,
+        &SerialPort::bytesReceived,
+        m_ft991Client,
+        &Ft991Client::feedBytes);
 
     connect(
         m_ft991Client,
@@ -235,9 +242,7 @@ void MainWindow::startServices()
         this,
         [](const QByteArray &frame)
         {
-            qDebug()
-            << "CAT TX"
-            << frame;
+            qDebug() << "MainWindow::startServices(): SIGNAL catTX" << "CAT TX" << frame;
         });
 
     connect(
@@ -250,10 +255,23 @@ void MainWindow::startServices()
             << "CAT RX"
             << frame;
         });
+
+    // Report on TxData Transmitted
+    connect(m_ft991Serial, &SerialPort::bytesTransmitted,
+            this, [this] (const QByteArray &frame) {
+                qDebug().noquote() << "SIGNAL: FT991 CAT TXDATA TRANSMITTED:" << m_ft991Serial->portName()
+                << frame.toHex(' ') << "ASCII:" << QString::fromLatin1(frame);
+            });
+
+    connect(m_civSerial, &SerialPort::bytesTransmitted,
+            this, [this] (const QByteArray &frame) {
+                qDebug() << "SIGNAL: TXDATA TRANSMITTED:" << m_civSerial->portName() << frame;
+            });
 #endif
 
         m_proxy->setBackend(
             m_radioBackend);
+    qDebug() << "MainWindow::startServices(): backend setup" << m_radioBackend;
 
     // Status monitoring for GUI
     connect(
@@ -262,15 +280,16 @@ void MainWindow::startServices()
         this,
         &MainWindow::radioRequestCompleted);
 
-        connect(
-            m_civ,
-            &CivProtocol::firstValidFrameReceived,
-            this,
-            [this]() {
-                ui->ledSAT_ready->setLedColor(Qt::green);
-            }
-            );
+    connect(
+        m_civ,
+        &CivProtocol::firstValidFrameReceived,
+        this,
+        [this]() {
+            ui->ledSAT_ready->setLedColor(Qt::green);
+        }
+    );
 
+#if 0
     m_radioPollTimer = new QTimer(this);
     Q_ASSERT(m_radioPollTimer);
     m_radioPollTimer->setInterval(1000);
@@ -282,6 +301,7 @@ void MainWindow::startServices()
         &MainWindow::pollRadioStatus);
 
     m_radioPollTimer->start();
+#endif
 
 
     // S.A.T Controller
@@ -295,8 +315,6 @@ void MainWindow::startServices()
         GetFrequency {
             Vfo::A
         });
-
-    qDebug() << "Submitted request" << id;
 }
 
 #if 0
@@ -410,7 +428,7 @@ bool MainWindow::openFT991Serial()
         << settings.baudRate;
 
 
-    if (!m_civSerial->open(settings))
+    if (!m_ft991Serial->open(settings))
     {
         qWarning()
         << "Unable to open FT991A Serial port:"

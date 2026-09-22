@@ -2,6 +2,7 @@
 #include "Ft991CatCodec.h"
 
 #include <QMetaObject>
+#include <QDebug>
 #include <type_traits>
 
 
@@ -11,13 +12,9 @@ Ft991Client::Ft991Client(
     : RadioBackend(parent),
     m_device(device)
 {
-    Q_ASSERT(m_device);
+    qDebug() << "Ft991Client::Ft991Client(): Constructor Entered" << "this =" << this << "device =" << m_device;
 
-    connect(
-        m_device,
-        &QIODevice::readyRead,
-        this,
-        &Ft991Client::onReadyRead);
+    Q_ASSERT(m_device);
 
     m_timeoutTimer.setSingleShot(true);
 
@@ -50,6 +47,13 @@ quint64 Ft991Client::submit(
         encodeRequest(
             request,
             error);
+
+    if ( encoded) {
+        qDebug("Ft991Client::submit(): encoded: ID(%llu) - %s", id, encoded->command.constData());
+    }
+        else {
+            qDebug() << "Ft991Client::submit(): encodeRequest() returned nullopt";
+        }
 
     if (!encoded)
     {
@@ -248,7 +252,12 @@ void Ft991Client::pumpQueue()
     if (m_queue.isEmpty())
         return;
 
-    if (!m_device ||
+    QString portName;
+    if (QSerialPort *serialPort = qobject_cast<QSerialPort*>(m_device)) {
+        portName = serialPort->portName();
+    }
+
+     if (!m_device ||
         !m_device->isOpen() ||
         !m_device->isWritable())
     {
@@ -269,16 +278,24 @@ void Ft991Client::pumpQueue()
         return;
     }
 
+     // Take the next request from the queue
+     // and make it the one currently in progress.
     m_active =
         m_queue.dequeue();
 
     const QByteArray &command =
         m_active->encoded.command;
 
+    // Diagnostic signal only.
     emit catTx(command);
+
+    // Hand the CAT bytes to QSerialPort.
+    qDebug() << "Ft991Client::pumpQueue(): Port" << portName << command;
 
     qint64 written =
         m_device->write(command);
+
+    qDebug() << "Ft991Client::pumpQueue(): bytes written:" << written << command;
 
     if (written != command.size())
     {
@@ -291,7 +308,9 @@ void Ft991Client::pumpQueue()
 
 
     //
-    // Set commands normally have no response.
+    // Set commands normally have no response...
+    // If this is a SET command, there is normally
+    // no answer from the FT-991A.
     //
     if (m_active->encoded.expectedPrefix.isEmpty())
     {
@@ -302,8 +321,9 @@ void Ft991Client::pumpQueue()
     }
 
 
-    //
+    // ...Otherwise this is a QUERY command.
     // Query -- wait for FT-991A response.
+    // Wait for readyRead() to deliver the answer.
     //
     m_timeoutTimer.start(
         m_timeoutMs);
@@ -311,74 +331,6 @@ void Ft991Client::pumpQueue()
 
 
 
-void Ft991Client::onReadyRead()
-{
-    m_rxBuffer +=
-        m_device->readAll();
-
-    while (true)
-    {
-        qsizetype terminator =
-            m_rxBuffer.indexOf(';');
-
-        if (terminator < 0)
-            break;
-
-        QByteArray frame =
-            m_rxBuffer.left(
-                terminator + 1);
-
-        m_rxBuffer.remove(
-            0,
-            terminator + 1);
-
-        emit catRx(frame);
-
-
-        //
-        // No request pending?
-        //
-        if (!m_active)
-        {
-            emit unsolicitedFrame(frame);
-            continue;
-        }
-
-
-        //
-        // Not the response we are waiting for?
-        //
-        if (!frameMatchesActiveRequest(frame))
-        {
-            emit unsolicitedFrame(frame);
-            continue;
-        }
-
-
-        QString error;
-
-        auto response =
-            decodeResponse(
-                m_active->request,
-                frame,
-                error);
-
-        if (!response)
-        {
-            failActive(
-                QStringLiteral(
-                    "Malformed FT-991A response: %1 (%2)")
-                    .arg(
-                        QString::fromLatin1(frame),
-                        error));
-
-            continue;
-        }
-
-        finishActive(
-            *response);
-    }
-}
 
 /*
  * Matching responses
@@ -659,4 +611,87 @@ void Ft991Client::disableAutoInformation()
     m_device->write(command);
 }
 
+void Ft991Client::feedBytes(
+    const QByteArray &data)
+{
+    if (data.isEmpty())
+        return;
+
+    qDebug().noquote()
+        << "Ft991Client RX:"
+        << data.toHex(' ')
+        << "ASCII:"
+        << QString::fromLatin1(data);
+
+    m_rxBuffer += data;
+
+
+    while (true)
+    {
+        qsizetype terminator =
+            m_rxBuffer.indexOf(';');
+
+        if (terminator < 0)
+            break;
+
+
+        QByteArray frame =
+            m_rxBuffer.left(
+                terminator + 1);
+
+        m_rxBuffer.remove(
+            0,
+            terminator + 1);
+
+
+        emit catRx(frame);
+
+
+        //
+        // Nothing currently waiting for an answer.
+        //
+        if (!m_active)
+        {
+            emit unsolicitedFrame(frame);
+            continue;
+        }
+
+
+        //
+        // Not the answer we're currently expecting.
+        //
+        if (!frameMatchesActiveRequest(frame))
+        {
+            emit unsolicitedFrame(frame);
+            continue;
+        }
+
+
+        QString error;
+
+        auto response =
+            decodeResponse(
+                m_active->request,
+                frame,
+                error);
+
+
+        if (!response)
+        {
+            failActive(
+                QStringLiteral(
+                    "Malformed FT-991A response: "
+                    "%1 (%2)")
+                    .arg(
+                        QString::fromLatin1(frame),
+                        error));
+
+            continue;
+        }
+
+
+        finishActive(
+            *response);
+    }
+}
 
