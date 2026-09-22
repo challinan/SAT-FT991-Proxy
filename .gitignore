@@ -1,2 +1,9 @@
 build
 .qtcreator
+.qmake.stash
+*.o
+moc_*
+ui_mainwindow.h 
+build/
+.DS_Store
+.qtcreator/
