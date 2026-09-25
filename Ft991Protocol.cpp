@@ -93,6 +93,11 @@ QByteArray Ft991Protocol::processFrame(
         return {};
     }
 
+    if ( !first_valid_frame ) {
+        emit(firstValidFrameReceived());
+        first_valid_frame = true;
+    }
+
     RadioResponse response =
         m_radio.execute(decoded.request);
 

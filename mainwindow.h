@@ -6,7 +6,7 @@
 #include <QTimer>
 #include "config_object.h"
 
-#include <CivProtocol.h>
+#include "CivProtocol.h"
 #include "CivProxyController.h"
 #include "RadioTypes.h"
 
@@ -31,22 +31,25 @@ public:
 
 private:
     void startServices();
+    void resumePolling();
+    QString radioResponseTypeName(const RadioResponse &response);
 
 private slots:
     void on_quit_pButton_clicked();
     void on_config_pButton_clicked();
     void on_run_pButton_clicked();
-    void on_serialPortComboBox_activated(int index);
+    void serialPortComboBox_activated(int index);
     void updateSATFrequencyMain(int freq);
     void updateSATFrequencySub(int freq);
     void updatePowerDisplay(QString S);
     void radioRequestCompleted(quint64 requestId, RadioResponse response);
-
+    void updatePowerLabel(QString S);
     void pollRadioStatus();
 
 private:
     QTimer *m_radioPollTimer = nullptr;
-
+    int m_missedResponsesCount = 0;
+    const int MAX_MISSED_RESPONSES = 3;
 
 private:
     Ui::MainWindow *ui;

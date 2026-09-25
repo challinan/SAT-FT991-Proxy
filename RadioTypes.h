@@ -112,7 +112,7 @@ struct ModeResponse
 
 struct RfPowerResponse
 {
-    int percent;
+    int watts;
 };
 
 struct TxResponse

@@ -27,27 +27,30 @@
      <string>TextLabel</string>
     </property>
    </widget>
-   <widget class="QComboBox" name="serialPortComboBox">
+   <widget class="QLabel" name="labelFT991SerialPort">
     <property name="geometry">
      <rect>
       <x>150</x>
       <y>90</y>
-      <width>291</width>
+      <width>141</width>
       <height>32</height>
      </rect>
+    </property>
+    <property name="frameShape">
+     <enum>QFrame::Shape::Box</enum>
     </property>
    </widget>
    <widget class="QLabel" name="serialPortLabel">
     <property name="geometry">
      <rect>
-      <x>40</x>
+      <x>20</x>
       <y>99</y>
-      <width>101</width>
-      <height>16</height>
+      <width>121</width>
+      <height>20</height>
      </rect>
     </property>
     <property name="text">
-     <string>Select Serial Port</string>
+     <string>FT991A Serial Port</string>
     </property>
     <property name="alignment">
      <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
@@ -63,46 +66,52 @@
      </rect>
     </property>
     <property name="text">
-     <string>Select Rig</string>
+     <string>Rig or Sim</string>
     </property>
     <property name="alignment">
      <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
     </property>
    </widget>
-   <widget class="QComboBox" name="rigComboBox">
+   <widget class="QLabel" name="rigTypeLabel">
     <property name="geometry">
      <rect>
       <x>150</x>
       <y>60</y>
-      <width>291</width>
+      <width>141</width>
       <height>32</height>
      </rect>
+    </property>
+    <property name="frameShape">
+     <enum>QFrame::Shape::Box</enum>
     </property>
    </widget>
    <widget class="QLabel" name="audioPortLabel">
     <property name="geometry">
      <rect>
-      <x>40</x>
+      <x>30</x>
       <y>127</y>
-      <width>101</width>
-      <height>16</height>
+      <width>111</width>
+      <height>20</height>
      </rect>
     </property>
     <property name="text">
-     <string>Select Audio Port</string>
+     <string>S.A.T Serial Port</string>
     </property>
     <property name="alignment">
      <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
     </property>
    </widget>
-   <widget class="QComboBox" name="audioPortComboBox">
+   <widget class="QLabel" name="labelSATSerialPort">
     <property name="geometry">
      <rect>
       <x>150</x>
       <y>120</y>
-      <width>291</width>
+      <width>141</width>
       <height>32</height>
      </rect>
+    </property>
+    <property name="frameShape">
+     <enum>QFrame::Shape::Box</enum>
     </property>
    </widget>
    <widget class="QPushButton" name="quit_pButton">
@@ -186,7 +195,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>TextLabel</string>
+     <string>SAT main freq</string>
     </property>
     <property name="alignment">
      <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
@@ -202,7 +211,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>TextLabel</string>
+     <string>SAT sub freq</string>
     </property>
     <property name="alignment">
      <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>

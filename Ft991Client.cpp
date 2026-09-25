@@ -12,7 +12,7 @@ Ft991Client::Ft991Client(
     : RadioBackend(parent),
     m_device(device)
 {
-    qDebug() << "Ft991Client::Ft991Client(): Constructor Entered" << "this =" << this << "device =" << m_device;
+    // Debug() << "Ft991Client::Ft991Client(): Constructor Entered" << "this =" << this << "device =" << m_device;
 
     Q_ASSERT(m_device);
 
@@ -33,56 +33,52 @@ void Ft991Client::setTimeout(int milliseconds)
 
 /*
  * The public submit() call
+ * Submit a request to be transmitted to the radio
  */
 
 quint64 Ft991Client::submit(
     const RadioRequest &request)
 {
-    const quint64 id =
-        m_nextRequestId++;
+    const quint64 id = m_nextRequestId++;
 
     QString error;
 
-    auto encoded =
-        encodeRequest(
-            request,
-            error);
+    auto encoded = encodeRequest(request, error);
+    qDebug() << "Ft991Client::submit(): ID:" << id << radioRequestTypeName(request);
 
-    if ( encoded) {
-        qDebug("Ft991Client::submit(): encoded: ID(%llu) - %s", id, encoded->command.constData());
-    }
-        else {
-            qDebug() << "Ft991Client::submit(): encodeRequest() returned nullopt";
-        }
-
-    if (!encoded)
-    {
-        //
-        // Emit asynchronously so submit() always
-        // returns before completion/failure signals.
-        //
+    if (!encoded) {
+        /*
+         * Alternatively, we might be able to do this:
+         * QTimer::singleShot(0, this, [this, id, error]() { emit requestFailed(id, error); });
+         *
+         * Emit asynchronously so submit() always
+         * returns before completion/failure signals.
+         */
+        qDebug() << "Ft991Client::submit(): ID:" << id << "encodeRequest Failed" << radioRequestTypeName(request);
         QMetaObject::invokeMethod(
             this,
-            [this, id, error]()
-            {
-                emit requestFailed(
-                    id,
-                    error);
+            [this, id, error]() {
+                emit requestFailed(id, error);
             },
             Qt::QueuedConnection);
+
 
         return id;
     }
 
-    PendingRequest pending {
-        id,
-        request,
-        *encoded
-    };
+    PendingRequest pending {id, request, *encoded};
 
-    m_queue.enqueue(
-        std::move(pending));
+    m_queue.enqueue(std::move(pending));
 
+    if ( m_queue.size() > 1 ) {
+        qDebug() << "Ft991client::submit(): Multiple requests pending:"<< m_queue.size();
+        QListIterator<PendingRequest> i(m_queue);
+        while (i.hasNext()) {
+            PendingRequest p = i.next();
+            qDebug() << "Ft991Client::submit():     ID:" << p.id
+                     << "Request:" << radioRequestTypeName(p.request)
+                     << "CAT:" << p.encoded.command;        }
+    }
     pumpQueue();
 
     return id;
@@ -99,51 +95,35 @@ Ft991Client::encodeRequest(
     const RadioRequest &request,
     QString &error) const
 {
+
     return std::visit(
-        [&error](const auto &req)
-        -> std::optional<EncodedRequest>
+        [&error](const auto &req) -> std::optional<EncodedRequest>
         {
-            using T =
-                std::decay_t<decltype(req)>;
+            using T = std::decay_t<decltype(req)>;
 
-
-            //
             // GET FREQUENCY
-            //
-            if constexpr (
-                std::is_same_v<T, GetFrequency>)
-            {
-                if (req.vfo == Vfo::A)
-                {
-                    return EncodedRequest {
-                        "FA;",
-                        "FA"
-                    };
+            if constexpr (std::is_same_v<T, GetFrequency>) {
+                QString v = (req.vfo == Vfo::A) ? "VFO_A" : "VFO_B";
+                qDebug() << "Ft991Client::encodeRequest(): GetFrequency:" << v;
+                if (req.vfo == Vfo::A) {
+                    return EncodedRequest {"FA;", "FA"};
                 }
 
-                return EncodedRequest {
-                    "FB;",
-                    "FB"
-                };
+                return EncodedRequest {"FB;", "FB"};
             }
-
 
             //
             // SET FREQUENCY
             //
             else if constexpr (
-                std::is_same_v<T, SetFrequency>)
-            {
-                QByteArray mnemonic =
-                    (req.vfo == Vfo::A)
-                        ? "FA"
-                        : "FB";
+                std::is_same_v<T, SetFrequency>) {
+                QString v = (req.vfo == Vfo::A) ? "VFO_A" : "VFO_B";
+                qDebug() << "Ft991Client::encodeRequest(): GetFrequency:" << v;
+
+                QByteArray mnemonic = (req.vfo == Vfo::A) ? "FA" : "FB";
 
                 return EncodedRequest {
-                    Ft991Cat::formatFrequencyCommand(
-                        mnemonic,
-                        req.hz),
-
+                    Ft991Cat::formatFrequencyCommand(mnemonic, req.hz),
                     // no answer
                     {}
                 };
@@ -156,9 +136,7 @@ Ft991Client::encodeRequest(
             else if constexpr (
                 std::is_same_v<T, GetMode>)
             {
-                return EncodedRequest {
-                    "MD0;",
-                    "MD0"
+                return EncodedRequest {"MD0;", "MD0"
                 };
             }
 
@@ -175,10 +153,7 @@ Ft991Client::encodeRequest(
 
                 if (!catMode)
                 {
-                    error =
-                        QStringLiteral(
-                            "Unsupported FT-991A mode");
-
+                    error = QStringLiteral("Unsupported FT-991A mode");
                     return std::nullopt;
                 }
 
@@ -200,10 +175,30 @@ Ft991Client::encodeRequest(
             else if constexpr (
                 std::is_same_v<T, GetTx>)
             {
-                return EncodedRequest {
-                    "TX;",
-                    "TX"
-                };
+                return EncodedRequest {"TX;", "TX"};
+            }
+
+
+            /*
+             * GET RF Power
+             */
+            else if constexpr (std::is_same_v<T, GetRfPower>)
+            {
+                return EncodedRequest {"PC;", "PC"};
+            }
+
+
+            /*
+             * SET RF Power
+             */
+            else if constexpr (std::is_same_v<T, SetRfPower>)
+            {
+                // Need the power value
+                int watts = req.percent / 2;
+                QByteArray cmd = "PC" + QByteArray::number(watts).rightJustified(3, '0');
+                cmd.append(';');
+                qDebug() << "Ft991Client::encodeRequest(): formatted power string:" << cmd.toHex();
+                return EncodedRequest {cmd, {}};
             }
 
 
@@ -213,10 +208,7 @@ Ft991Client::encodeRequest(
             else if constexpr (
                 std::is_same_v<T, SetTx>)
             {
-                return EncodedRequest {
-                    req.transmit
-                        ? QByteArray("TX1;")
-                        : QByteArray("TX0;"),
+                return EncodedRequest {req.transmit ? QByteArray("TX1;") : QByteArray("TX0;"),
                     {}
                 };
             }
@@ -225,9 +217,7 @@ Ft991Client::encodeRequest(
             else
             {
                 error =
-                    QStringLiteral(
-                        "RadioRequest is not supported "
-                        "by the FT-991A client");
+                    QStringLiteral("RadioRequest is not supported by the FT-991A client");
 
                 return std::nullopt;
             }
@@ -243,62 +233,46 @@ Ft991Client::encodeRequest(
  */
 void Ft991Client::pumpQueue()
 {
-    //
-    // Already waiting for a response.
-    //
+    /*
+     * Already waiting for a response.
+     */
     if (m_active)
         return;
 
     if (m_queue.isEmpty())
         return;
 
-    QString portName;
-    if (QSerialPort *serialPort = qobject_cast<QSerialPort*>(m_device)) {
-        portName = serialPort->portName();
-    }
-
      if (!m_device ||
         !m_device->isOpen() ||
         !m_device->isWritable())
     {
-        //
         // Fail only the next request.
-        //
-        PendingRequest pending =
-            m_queue.dequeue();
+        PendingRequest pending = m_queue.dequeue();
 
-        emit requestFailed(
-            pending.id,
-            QStringLiteral(
-                "FT-991A transport is not writable"));
+        emit requestFailed(pending.id,
+            QStringLiteral("FT-991A transport is not writable"));
 
-        //
-        // Give remaining requests a chance later.
-        //
+
+         // Give remaining requests a chance later.
         return;
     }
 
      // Take the next request from the queue
      // and make it the one currently in progress.
-    m_active =
-        m_queue.dequeue();
+    m_active = m_queue.dequeue();
 
-    const QByteArray &command =
-        m_active->encoded.command;
+    const QByteArray &command = m_active->encoded.command;
 
     // Diagnostic signal only.
     emit catTx(command);
 
     // Hand the CAT bytes to QSerialPort.
-    qDebug() << "Ft991Client::pumpQueue(): Port" << portName << command;
 
-    qint64 written =
-        m_device->write(command);
+    qint64 written = m_device->write(command);
 
     qDebug() << "Ft991Client::pumpQueue(): bytes written:" << written << command;
 
-    if (written != command.size())
-    {
+    if (written != command.size()) {
         failActive(
             QStringLiteral(
                 "Unable to write complete CAT command"));
@@ -307,15 +281,13 @@ void Ft991Client::pumpQueue()
     }
 
 
-    //
-    // Set commands normally have no response...
-    // If this is a SET command, there is normally
-    // no answer from the FT-991A.
-    //
-    if (m_active->encoded.expectedPrefix.isEmpty())
-    {
-        finishActive(
-            AckResponse {});
+    /*
+     * Set commands normally have no response...
+     * If this is a SET command, there is normally
+     * no answer from the FT-991A.
+     */
+    if (m_active->encoded.expectedPrefix.isEmpty()) {
+        finishActive(AckResponse {});
 
         return;
     }
@@ -325,8 +297,7 @@ void Ft991Client::pumpQueue()
     // Query -- wait for FT-991A response.
     // Wait for readyRead() to deliver the answer.
     //
-    m_timeoutTimer.start(
-        m_timeoutMs);
+    m_timeoutTimer.start(m_timeoutMs);
 }
 
 
@@ -340,6 +311,7 @@ void Ft991Client::pumpQueue()
  *   FB;    → FB...........;
  *   MD0;   → MD0..;
  *   TX;    → TX..;
+ *   etc...
  *
  */
 bool Ft991Client::frameMatchesActiveRequest(
@@ -374,9 +346,7 @@ Ft991Client::decodeResponse(
                 std::decay_t<decltype(req)>;
 
 
-            //
-            // FREQUENCY
-            //
+            // GET FREQUENCY
             if constexpr (
                 std::is_same_v<T, GetFrequency>)
             {
@@ -394,7 +364,7 @@ Ft991Client::decodeResponse(
                 {
                     error =
                         QStringLiteral(
-                            "Invalid frequency response");
+                            "Ft991Client::decodeResponse(): Invalid frequency response");
 
                     return std::nullopt;
                 }
@@ -408,9 +378,7 @@ Ft991Client::decodeResponse(
             }
 
 
-            //
-            // MODE
-            //
+            // GET MODE
             else if constexpr (
                 std::is_same_v<T, GetMode>)
             {
@@ -423,7 +391,7 @@ Ft991Client::decodeResponse(
                 {
                     error =
                         QStringLiteral(
-                            "Invalid MD response");
+                            "Ft991Client::decodeResponse(): Invalid MD response");
 
                     return std::nullopt;
                 }
@@ -436,7 +404,7 @@ Ft991Client::decodeResponse(
                 {
                     error =
                         QStringLiteral(
-                            "Unknown FT-991A mode");
+                            "Ft991Client::decodeResponse(): Unknown FT-991A mode");
 
                     return std::nullopt;
                 }
@@ -450,10 +418,8 @@ Ft991Client::decodeResponse(
             }
 
 
-            //
-            // TX STATE
-            //
-            else if constexpr (
+            // GET TX STATE
+             else if constexpr (
                 std::is_same_v<T, GetTx>)
             {
                 if (frame.size() != 4 ||
@@ -462,7 +428,7 @@ Ft991Client::decodeResponse(
                 {
                     error =
                         QStringLiteral(
-                            "Invalid TX response");
+                            "Ft991Client::decodeResponse(): Invalid TX response");
 
                     return std::nullopt;
                 }
@@ -489,7 +455,7 @@ Ft991Client::decodeResponse(
                 default:
                     error =
                         QStringLiteral(
-                            "Unknown TX state");
+                            "Ft991Client::decodeResponse(): Unknown TX state");
 
                     return std::nullopt;
                 }
@@ -502,11 +468,72 @@ Ft991Client::decodeResponse(
             }
 
 
+            /*
+             * Get RF Power
+             */
+            else if constexpr (std::is_same_v<T, GetRfPower>)
+            {
+                // PCxxx; ie PC050;
+                // qDebug() << "Ft991Client::decodeResponse(): frame size" << frame.size() << "frame" << frame;
+                if (frame.size() != 6 ||
+                    !frame.startsWith("PC") ||
+                    !frame.endsWith(';'))
+                {
+                    error =
+                        QStringLiteral(
+                            "Ft991Client::decodeResponse(): Invalid PC response");
+
+                    return std::nullopt;
+                }
+                // FT991A reports power in watts, max is 50W on UHF/VHF
+                // Report percent power to CIV Proxy
+                // int powerPercent = frame.mid(2, 3).toInt() / 50 * 100;
+                // qDebug() << "Ft991Client::decodeResponse(): Power Percent:" << powerPercent;
+
+                bool ok = false;
+                int watts = frame.mid(2, 3).toInt(&ok, 10);
+                if (!ok){
+                    error = "Ft991Client::decodeResponse(): Invalid PC power value";
+                    return std::nullopt;
+                }
+
+                return RadioResponse {RfPowerResponse {watts}};
+            }
+
+            /*
+             * Set RF Power
+             */
+            else if constexpr (std::is_same_v<T, SetRfPower>)
+            {
+                // PCxxx; ie PC050;
+                qDebug() << "Ft991Client::decodeResponse(): Set RF Power - frame size" << frame.size() << "frame" << frame;
+                if (frame.size() != 6 ||
+                    !frame.startsWith("PC") ||
+                    !frame.endsWith(';'))
+                {
+                    error =
+                        QStringLiteral("Ft991Client::decodeResponse(): Invalid PC response");
+
+                    return std::nullopt;
+                }
+                // FT991A reports power in watts, max is 50W on UHF/VHF
+                // S.A.T Reports power in percent
+
+                bool ok = false;
+                int watts = frame.mid(2, 3).toInt(&ok, 10);
+                if (!ok){
+                    error = "Ft991Client::decodeResponse(): Invalid PC power value";
+                    return std::nullopt;
+                }
+
+                return RadioResponse {RfPowerResponse {watts}};
+            }
+
             else
             {
                 error =
                     QStringLiteral(
-                        "Response received for "
+                        "Ft991Client::decodeResponse(): Response received for "
                         "non-query request");
 
                 return std::nullopt;
@@ -526,14 +553,12 @@ void Ft991Client::finishActive(
 
     m_timeoutTimer.stop();
 
-    const quint64 id =
-        m_active->id;
+    const quint64 id = m_active->id;
 
     m_active.reset();
 
-    emit requestCompleted(
-        id,
-        response);
+    qDebug() << "Ft991Client::finishActive(): emit requestCompleted()";
+    emit requestCompleted(id, response);
 
     //
     // Avoid deep recursion if somebody queues a
@@ -562,9 +587,7 @@ void Ft991Client::failActive(
 
     m_active.reset();
 
-    emit requestFailed(
-        id,
-        error);
+    emit requestFailed(id, error);
 
     QMetaObject::invokeMethod(
         this,
@@ -587,8 +610,7 @@ void Ft991Client::onTimeout()
 
     failActive(
         QStringLiteral(
-            "Timeout waiting for FT-991A response to %1")
-            .arg(command));
+            "Ft991Client::onTimeout(): Timeout waiting for FT-991A response to %1").arg(command));
 }
 
 /*
@@ -618,13 +640,9 @@ void Ft991Client::feedBytes(
         return;
 
     qDebug().noquote()
-        << "Ft991Client RX:"
-        << data.toHex(' ')
-        << "ASCII:"
-        << QString::fromLatin1(data);
+        << "Ft991Client::feedBytes(): Ft991Client RX:" << data.toHex(' ') << "ASCII:" << QString::fromLatin1(data);
 
     m_rxBuffer += data;
-
 
     while (true)
     {
@@ -634,53 +652,38 @@ void Ft991Client::feedBytes(
         if (terminator < 0)
             break;
 
+        QByteArray frame = m_rxBuffer.left(terminator + 1);
 
-        QByteArray frame =
-            m_rxBuffer.left(
-                terminator + 1);
+        m_rxBuffer.remove(0, terminator + 1);
 
-        m_rxBuffer.remove(
-            0,
-            terminator + 1);
-
-
+        if ( !first_valid_frame ) {
+            emit firstValidFrameReceived();
+            first_valid_frame = true;
+        }
         emit catRx(frame);
 
-
-        //
         // Nothing currently waiting for an answer.
-        //
-        if (!m_active)
-        {
+        if (!m_active) {
             emit unsolicitedFrame(frame);
             continue;
         }
 
 
-        //
         // Not the answer we're currently expecting.
-        //
-        if (!frameMatchesActiveRequest(frame))
-        {
+         if (!frameMatchesActiveRequest(frame)) {
             emit unsolicitedFrame(frame);
             continue;
         }
-
 
         QString error;
 
-        auto response =
-            decodeResponse(
-                m_active->request,
-                frame,
-                error);
+        auto response = decodeResponse(m_active->request, frame, error);
 
 
-        if (!response)
-        {
+        if (!response) {
             failActive(
                 QStringLiteral(
-                    "Malformed FT-991A response: "
+                    "Ft991Client::feedBytes(): Malformed FT-991A response: "
                     "%1 (%2)")
                     .arg(
                         QString::fromLatin1(frame),
@@ -689,9 +692,46 @@ void Ft991Client::feedBytes(
             continue;
         }
 
-
-        finishActive(
-            *response);
+        finishActive(*response);
     }
+}
+
+QString Ft991Client::radioRequestTypeName(
+    const RadioRequest &request)
+{
+    return std::visit(
+        [](const auto &value) -> QString
+        {
+            using T =
+                std::decay_t<decltype(value)>;
+
+            if constexpr (std::is_same_v<T, GetFrequency>)
+                return "GetFrequency";
+
+            else if constexpr (std::is_same_v<T, SetFrequency>)
+                return "SetFrequency";
+
+            else if constexpr (std::is_same_v<T, GetMode>)
+                return "GetMode";
+
+            else if constexpr (std::is_same_v<T, SetMode>)
+                return "SetMode";
+
+            else if constexpr (std::is_same_v<T, GetRfPower>)
+                return "GetRfPower";
+
+            else if constexpr (std::is_same_v<T, SetRfPower>)
+                return "SetRfPower";
+
+            else if constexpr (std::is_same_v<T, GetTx>)
+                return "GetTx";
+
+            else if constexpr (std::is_same_v<T, SetTx>)
+                return "SetTx";
+
+            else
+                return "Unknown";
+        },
+        request);
 }
 

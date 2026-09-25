@@ -21,6 +21,7 @@ SerialPort::SerialPort(
         this,
         &SerialPort::onError);
 
+#if 0
     connect(
         &m_serialport,
         &QIODevice::aboutToClose,
@@ -37,6 +38,7 @@ SerialPort::SerialPort(
             << "error =" << m_serialport.error()
             << "errorString =" << m_serialport.errorString();
         });
+#endif
 }
 
 
@@ -97,7 +99,7 @@ bool SerialPort::open(
 
         return false;
     }
-    qDebug() << "SerialPort::open(): Serial Port was just opened" << m_serialport.isOpen();
+    // qDebug() << "SerialPort::open(): Serial Port was just opened" << m_serialport.isOpen();
 
     //
     // Set modem-control lines only after
@@ -118,7 +120,6 @@ bool SerialPort::open(
         QSerialPort::AllDirections);
 
 
-    qDebug() << "SerialPort::open(): about to call emit opened()" << m_serialport.isOpen();
     emit opened();
 
     return true;
@@ -201,8 +202,6 @@ void SerialPort::onReadyRead()
 
 
     emit bytesReceived(data);
-
-    emit bytesReceived(data);
 }
 
 /*
@@ -221,12 +220,12 @@ qint64 SerialPort::write(
     {
         emit errorOccurred(
             QStringLiteral(
-                "SerialPort::write(): Attempt to write to closed serial port"));
+                "SerialPort::write(): [%1] Attempt to write to closed serial port").arg(this->portName()));
 
         return -1;
     }
 
-    qDebug() << "SerialPort::write(): Entered with" << data;
+    // qDebug() << "SerialPort::write():" << this->portName() << "Entered with" << data;
 
     qint64 result =
         m_serialport.write(data);
@@ -316,4 +315,8 @@ SerialPort::availablePorts()
     return
         QSerialPortInfo::
         availablePorts();
+}
+
+void SerialPort::setPortHumanName(QString s) {
+    portHumanName = s;
 }

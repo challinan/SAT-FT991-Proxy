@@ -46,7 +46,6 @@ public:
 
     bool isOpen() const;
 
-
     //
     // This is what Ft991Client wants.
     //
@@ -65,6 +64,7 @@ public:
     QString errorString() const;
 
     const Settings &settings() const;
+    void setPortHumanName(QString s);
 
 
     static QList<QSerialPortInfo>
@@ -104,6 +104,6 @@ private slots:
 private:
 
     QSerialPort m_serialport;
-
+    QString portHumanName = "";
     Settings m_settings;
 };

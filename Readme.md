@@ -1,3 +1,23 @@
+On the Yaesu FT-991A, the FT (Function TX) CAT command determines which VFO is used to transmit when you press the PTT button.
+Unlike the dual-receiver Icom IC-9700, the Yaesu FT-991A is a single-receiver radio. However, it still maintains two distinct frequency memories: VFO-A and VFO-B. The FT command controls how the radio handles these VFOs during Split operations (transmitting on a different frequency than you are listening to).
+The Two Settings Explained
+1. FT0; (VFO-A Band Transmitter TX)
+• What it does: Sets VFO-A as your transmit frequency.
+• Normal Operation: In standard, non-split operation, you listen on VFO-A and transmit on VFO-A.
+• Reverse Split: If Split mode is enabled, this setting means you will receive on VFO-B and transmit on VFO-A.
+2. FT1; (VFO-B Band Transmitter TX)
+• What it does: Sets VFO-B as your transmit frequency.
+• Standard Split Operation: This is the most common setting for working DX split or using split-frequency repeaters. It tells the radio: Receive/listen on VFO-A, but instantly flip to VFO-B when transmitting.
+
+While the Icom uses "Main" and "Sub" to switch between two entirely independent physical receivers, the Yaesu FT-991A uses FT (and its counterpart FR for Function RX) to manage a single synthesizer pipeline.
+• To Listen on A and Transmit on B (Standard Split):
+        • Set Receive to VFO-A: FR0;
+        • Set Transmit to VFO-B: FT1;
+• To Listen on B and Transmit on A (Reverse Split):
+        • Set Receive to VFO-B: FR1;
+        • Set Transmit to VFO-A: FT0;
+        
+
 The design uses a static command-definition table plus a separate radio-state model. 
 The command table describes the protocol; the state model contains the current 
 simulated/actual radio state.

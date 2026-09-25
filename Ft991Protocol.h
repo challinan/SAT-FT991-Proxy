@@ -7,6 +7,8 @@
 
 class Ft991Protocol : public RadioProtocol
 {
+    Q_OBJECT
+
 public:
     explicit Ft991Protocol(RadioCore &radio);
 
@@ -112,4 +114,10 @@ private:
 
     static char modeToCat(
         RadioMode mode);
+
+signals:
+    void firstValidFrameReceived();
+
+private:
+    bool first_valid_frame = false;
 };

@@ -1,4 +1,5 @@
 #include "CivProxyController.h"
+#include <QDebug>
 
 
 CivProxyController::CivProxyController(
@@ -15,120 +16,90 @@ void CivProxyController::setBackend(
         return;
 
 
-    //
-    // If we're changing radios while requests are
-    // outstanding, those old requests are no longer
-    // meaningful.
-    //
-    if (!m_pending.isEmpty())
-    {
-        const auto pending =
-            m_pending;
+    /*
+     * If we're changing radios while requests are
+     * outstanding, those old requests are no longer
+     * meaningful.
+     */
+    if (!m_pending.isEmpty()) {
+        const auto pending = m_pending;
 
         m_pending.clear();
 
-        for (const PendingRequest &request :
-             pending)
+        for (const PendingRequest &request : pending)
         {
             emit requestFailed(
                 request.context,
-                QStringLiteral(
-                    "Radio backend changed"));
+                QStringLiteral("CivProxyController::setBackend(): Radio backend changed"));
         }
     }
 
 
-    //
     // Disconnect old backend.
-    //
-    if (m_backend)
-    {
-        disconnect(
-            m_backend,
-            nullptr,
-            this,
-            nullptr);
+    if (m_backend) {
+        disconnect(m_backend, nullptr, this, nullptr);
     }
 
-
     m_backend = backend;
-
 
     if (!m_backend)
         return;
 
-
+    qDebug() << "CivProxyController::setBackend(): Setting up connections";
     connect(
         m_backend,
         &RadioBackend::requestCompleted,
-
         this,
-        &CivProxyController::
-        backendRequestCompleted);
-
+        &CivProxyController::backendRequestCompleted);
 
     connect(
         m_backend,
         &RadioBackend::requestFailed,
-
         this,
-        &CivProxyController::
-        backendRequestFailed);
+        &CivProxyController::backendRequestFailed);
 }
 
 void CivProxyController::submit(
     const CivRequestContext &context,
     const RadioRequest &request)
 {
-    if (!m_backend)
-    {
-        emit requestFailed(
-            context,
-            QStringLiteral(
-                "No radio backend selected"));
+    qDebug() << "CivProxyController::submit(): m_backend:" << m_backend;
+    if (!m_backend) {
+        emit requestFailed(context,
+            QStringLiteral("CivProxyController::submit(): No radio backend selected"));
 
         return;
     }
 
+    quint64 requestId = m_backend->submit(request);
+    qDebug() << "CivProxyController::submit(): backend called radio submit(): requestID:" << requestId;
 
-    quint64 requestId =
-        m_backend->submit(request);
-
-
-    m_pending.insert(
-        requestId,
-        PendingRequest {
-            context
-        });
+    // Insert this PendingRequest into our hash lookup table
+    m_pending.insert(requestId, PendingRequest {context});
 }
 
-void CivProxyController::
-    backendRequestCompleted(
+void CivProxyController::backendRequestCompleted(
         quint64 requestId,
         RadioResponse response)
 {
-    auto it =
-        m_pending.find(requestId);
+    qDebug() << "CivProxyController::backendRequestCompleted(): Entered with requestID:" << requestId;
+    auto it = m_pending.find(requestId);
 
-    if (it == m_pending.end())
-    {
-        //
-        // Could log this. It means a backend returned
-        // an ID we no longer know about.
-        //
+    if (it == m_pending.end()) {
+        /*
+         * Could log this. It means a backend returned
+         * an ID we no longer know about.
+         */
         return;
     }
 
 
-    CivRequestContext context =
-        it->context;
+    CivRequestContext context = it->context;
 
     m_pending.erase(it);
 
-
-    emit responseReady(
-        context,
-        response);
+    qDebug() << "CivProxyController::backendRequestCompleted(): About to emit responseReady";
+    emit responseReady(context, response);  // Slot: CivProtocol::handleRadioResponse()
 }
 
 void CivProxyController::
@@ -148,9 +119,6 @@ void CivProxyController::
 
     m_pending.erase(it);
 
-
-    emit requestFailed(
-        context,
-        error);
+    emit requestFailed(context, error);
 }
 

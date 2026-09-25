@@ -33,6 +33,9 @@ public:
         return m_radioAddress;
     }
 
+private:
+    void setPortHumanName(QString s);
+    int maxPowerWattsForFrequency(quint64 hz) const;
 
 public slots:
 
@@ -101,6 +104,7 @@ private:
 
     quint8 m_radioAddress = 0xA2;
     bool first_valid_frame = 0;
+    QString portHumanName = "";
 
     QByteArray m_rxBuffer;
 

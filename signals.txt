@@ -1,0 +1,83 @@
+CivProtocol.h
+    Signal: firstValidFrameReceived
+    Description: Used to set LED status to green (op status OK)
+    slot: 
+
+    signal: radioRequest()
+    Description: Send request to radio from S.A.T query
+    slot: CivProxyController::submit()
+    connect: mainwindow.cpp: 177
+
+    signal: frameReady()
+    Description: Frame ready for sending, send to CIV port
+    slot: SerialPort::write
+    connect: mainwindow.cpp:170 
+
+    signal: frameReceived()
+    Description: Valid frame received from S.A.T
+    slot: None
+    connect: currently unused
+
+    signal: unsupportedFrame()
+    Description: Function is unsupported
+    slot: None
+    connect: N/A
+
+    signal: updatePowerLabel()
+    Description:
+    slot: updatePowerDisplay
+    connect: mainwindow.cpp
+
+Ft991Client.h
+    signal: requestCompleted()
+    Description: Signal end of readio request
+    slot: lambda qDebug() only
+    connect: mainwindow.cpp:223
+
+    signal: requestFailed()
+    Description:
+    slot:
+    connect:
+
+    signel: unsolicitedFrame()
+    Description:
+    slot:
+    connect:
+
+    signal: catTx()
+    Description: Signals transmission of frame to FT991A
+    slot:
+    connect:
+
+SerialPort.h
+    signal: opened()
+    Description: Report successful open of serial port
+    slot:
+    connect: not connected
+
+Ft991Client.h
+    signal: QTimer::timout()
+    Description: Handle command timeout
+    slot: Ft991Client::onTimeout()
+    connect: Ft991Client.cpp:21 (in constructor)
+
+CivProxyController.h
+    signal: responseReady()
+    Description: Radio replied handle response
+    slot: CivProtocol::handleRadioRespone
+    connect: mainwindow.cpp:154
+
+
+RadioBackend.h
+    signal: requestCompleted()
+    Description: 
+    slot: CivProxyController::backendRequestCompleted
+    connect: CivProxyController.cpp:61
+
+
+SerialPort.cpp
+    signal: bytesReceived()
+    Description: Bytes available on serial port, handle them
+    slot: Ft991Client::feedBytes()
+    connect: mainwindow.cpp:211
+

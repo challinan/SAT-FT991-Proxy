@@ -102,6 +102,17 @@ void MainWindow::initializeUiLabels() {
     ui->ledFT991A_ready->setLedColor(Qt::red);
     ui->ledFT991A_ready->setIsOn(true);
 
+#ifdef ENABLE_FT991_SIM
+    ui->rigTypeLabel->setText("Simulator");
+    ui->labelSATSerialPort->setText("Unknown");
+    ui->labelFT991SerialPort->setText("Unknown");
+#else
+    ui->rigTypeLabel->setText("FT991A");
+    ui->labelSATSerialPort->setText("Unknown");
+    ui->labelFT991SerialPort->setText("Unknown");
+#endif
+
+    updatePowerLabel("Unknown");
 }
 
 void MainWindow::on_run_pButton_clicked() {
@@ -114,14 +125,11 @@ void MainWindow::startServices()
     bool rc;
 
     // Hook everything together
-    m_civSerial =
-        new SerialPort(this);
+    m_civSerial = new SerialPort(this);
 
-    m_civ =
-        new CivProtocol(this);
+    m_civ = new CivProtocol(this);
 
-    m_proxy =
-        new CivProxyController(this);
+    m_proxy = new CivProxyController(this);
 
     // S.A.T. serial RX
     connect(
@@ -162,13 +170,6 @@ void MainWindow::startServices()
         m_civSerial,
         &SerialPort::write);
 
-    // radioRequest handling
-    connect(
-        m_civ,
-        &CivProtocol::radioRequest,
-        m_proxy,
-        &CivProxyController::submit);
-
     connect(
         m_civ,
         &CivProtocol::updatePowerLabel,
@@ -177,14 +178,12 @@ void MainWindow::startServices()
 
     // During travel:
 #ifdef ENABLE_FT991_SIM
-    m_radioBackend =
-        new RadioCoreBackend(this);
+    m_radioBackend = new RadioCoreBackend(this);
 
     m_radioBackend->setTimeout(500);
 #else
     // At home:
-    m_ft991Serial =
-        new SerialPort(this);
+    m_ft991Serial = new SerialPort(this);
 
     rc = openFT991Serial();
     if ( !rc ) {
@@ -192,7 +191,7 @@ void MainWindow::startServices()
         throw std::runtime_error("MainWindow::startServices(): Fatal: FT991A Serial Port open failed");
     }
 
-    qDebug() << "****************This is device()" << m_ft991Serial->device();
+    // qDebug() << "****************This is device()" << m_ft991Serial->device();
     m_ft991Client =
         new Ft991Client(
             m_ft991Serial->device(),
@@ -203,24 +202,28 @@ void MainWindow::startServices()
     // m_ft991Client->disableAutoInformation();
     m_radioBackend->setTimeout(500);
 
+    // FT-991A Serial Port RX
     connect(
         m_ft991Serial,
         &SerialPort::bytesReceived,
         m_ft991Client,
         &Ft991Client::feedBytes);
 
+    // Debug only
     connect(
-        m_ft991Client,
+        m_radioBackend,
         &Ft991Client::requestCompleted,
         this,
-        [](quint64 id,
-           const RadioResponse &response)
-        {
-            qDebug()
-            << "Request"
-            << id
-            << "completed";
+        [this](quint64 id, const RadioResponse &response) {
+            qDebug() << "Ft991Client: Request" << id << "completed" << radioResponseTypeName(response);
         });
+
+    // Status monitoring for GUI
+    connect(
+        m_radioBackend,
+        &RadioBackend::requestCompleted,
+        this,
+        &MainWindow::radioRequestCompleted);
 
     connect(
         m_ft991Client,
@@ -229,11 +232,7 @@ void MainWindow::startServices()
         [](quint64 id,
            const QString &error)
         {
-            qWarning()
-            << "Request"
-            << id
-            << "failed:"
-            << error;
+            qDebug() << "MainWindow::startServices(): SIGNAL: Ft991Client::requestFailed: Request" << id << "failed:" << error;
         });
 
     connect(
@@ -242,43 +241,43 @@ void MainWindow::startServices()
         this,
         [](const QByteArray &frame)
         {
-            qDebug() << "MainWindow::startServices(): SIGNAL catTX" << "CAT TX" << frame;
+            // qDebug() << "MainWindow::startServices(): SIGNAL catTX ->" << frame;
+        });
+
+    connect(
+        m_ft991Client,
+        &Ft991Client::unsolicitedFrame,
+        this,
+        [](const QByteArray &frame)
+        {
+            // qDebug() << "MainWindow::startServices(): Unexpected Frame in Ft991Client::feedBytes() ->" << frame;
         });
 
     connect(
         m_ft991Client,
         &Ft991Client::catRx,
         this,
-        [](const QByteArray &frame)
+        [this](const QByteArray &frame)
         {
-            qDebug()
-            << "CAT RX"
-            << frame;
+            m_missedResponsesCount = 0;
+            // qDebug() << "MainWindow::startServices(): CAT RX" << frame;
         });
 
     // Report on TxData Transmitted
     connect(m_ft991Serial, &SerialPort::bytesTransmitted,
             this, [this] (const QByteArray &frame) {
-                qDebug().noquote() << "SIGNAL: FT991 CAT TXDATA TRANSMITTED:" << m_ft991Serial->portName()
-                << frame.toHex(' ') << "ASCII:" << QString::fromLatin1(frame);
+                // qDebug().noquote() << "SIGNAL: FT991 CAT TXDATA TRANSMITTED:" << m_ft991Serial->portName()
+                // << frame.toHex(' ') << "ASCII:" << QString::fromLatin1(frame);
             });
 
     connect(m_civSerial, &SerialPort::bytesTransmitted,
             this, [this] (const QByteArray &frame) {
-                qDebug() << "SIGNAL: TXDATA TRANSMITTED:" << m_civSerial->portName() << frame;
+                // qDebug() << "SIGNAL: TXDATA TRANSMITTED:" << m_civSerial->portName() << frame;
             });
 #endif
 
-        m_proxy->setBackend(
-            m_radioBackend);
+        m_proxy->setBackend(m_radioBackend);
     qDebug() << "MainWindow::startServices(): backend setup" << m_radioBackend;
-
-    // Status monitoring for GUI
-    connect(
-        m_radioBackend,
-        &RadioBackend::requestCompleted,
-        this,
-        &MainWindow::radioRequestCompleted);
 
     connect(
         m_civ,
@@ -289,10 +288,21 @@ void MainWindow::startServices()
         }
     );
 
-#if 0
+    connect(
+        m_ft991Client,
+        &Ft991Client::firstValidFrameReceived,
+        this,
+        [this]() {
+            ui->ledFT991A_ready->setLedColor(Qt::green);
+        }
+    );
+
+    /*
+     * Setup a timer to poll the radio
+     */
     m_radioPollTimer = new QTimer(this);
     Q_ASSERT(m_radioPollTimer);
-    m_radioPollTimer->setInterval(1000);
+    m_radioPollTimer->setInterval(10000);
 
     connect(
         m_radioPollTimer,
@@ -301,8 +311,6 @@ void MainWindow::startServices()
         &MainWindow::pollRadioStatus);
 
     m_radioPollTimer->start();
-#endif
-
 
     // S.A.T Controller
     rc = openCivSerial();
@@ -311,9 +319,14 @@ void MainWindow::startServices()
         throw std::runtime_error("MainWindow::startServices(): Fatal: S.A.T Serial Port open failed");
     }
 
-    qint64 id = m_radioBackend->submit(
+    m_radioBackend->submit(
         GetFrequency {
             Vfo::A
+        });
+
+    m_radioBackend->submit(
+        GetFrequency {
+            Vfo::B
         });
 }
 
@@ -323,7 +336,7 @@ void MainWindow::serial_port_detected(QString &s) {
 }
 #endif
 
-void MainWindow::on_serialPortComboBox_activated(int index)
+void MainWindow::serialPortComboBox_activated(int index)
 {
     qDebug() << "MainWindow::on_serialPortComboBox_activated: " << index;
 }
@@ -373,24 +386,21 @@ bool MainWindow::openCivSerial()
 
 
     qDebug()
-        << "Opening CI-V serial port"
-        << settings.portName
-        << "at"
-        << settings.baudRate;
+        << "MainWindow::updatePowerDisplay(): Opening CI-V serial port"
+        << settings.portName << "at" << settings.baudRate;
 
 
     if (!m_civSerial->open(settings))
     {
         qWarning()
-        << "Unable to open CI-V port:"
+        << "MainWindow::updatePowerDisplay(): Unable to open CI-V port:"
         << m_civSerial->errorString();
 
         return false;
     }
+    m_civSerial->setPortHumanName("S.A.T Serial Port");
 
-
-    qDebug()
-        << "CI-V serial port opened";
+    qDebug() << "MainWindow::openCivSerial(): CI-V serial port opened";
 
     return true;
 }
@@ -436,10 +446,9 @@ bool MainWindow::openFT991Serial()
 
         return false;
     }
+    m_ft991Serial->setPortHumanName("FT991A-Serial-Port");
 
-
-    qDebug()
-        << "FT991A serial port opened";
+    qDebug() << "MainWindow::openFT991Serial(): FT991A serial port opened";
 
     return true;
 }
@@ -448,40 +457,38 @@ void MainWindow::radioRequestCompleted(
     quint64 requestId,
     RadioResponse response)
 {
-    Q_UNUSED(requestId);
+    QString sentFrom = "Unknown";
 
-    if (auto value =
-        std::get_if<FrequencyResponse>(
-            &response))
-    {
-        double mhz =
-            value->hz / 1000000.0;
+    QObject* rawSender = sender();
+    // Try casting to Ft991Client
+    if (Ft991Client* ftp = qobject_cast<Ft991Client*>(rawSender)) {
+        sentFrom = "Ft991Client";
+    }
 
-        if (value->vfo == Vfo::A)
-        {
-            ui->labelRadioFreqA->setText(
-                QString::number(
-                    mhz,
-                    'f',
-                    6));
+    // Try casting to RadioBackend
+    if (RadioBackend* ftp = qobject_cast<RadioBackend*>(rawSender)) {
+        sentFrom = "RadioBackend";
+    }
+
+    qDebug() << "MainWindow::radioRequestCompleted(): Sender:" << sentFrom
+             << "ID:" << requestId << radioResponseTypeName(response);
+
+    if (auto value = std::get_if<FrequencyResponse>(&response)) {
+        double mhz = value->hz / 1000000.0;
+        QString str = QString::number(mhz, 'f', 6);
+
+        if (value->vfo == Vfo::A) {
+            ui->labelRadioFreqA->setText(str);
         }
-        else
-        {
-            ui->labelRadioFreqB->setText(
-                QString::number(
-                    mhz,
-                    'f',
-                    6));
+        else {
+            ui->labelRadioFreqB->setText(str);
         }
 
         return;
     }
 
 
-    if (auto value =
-        std::get_if<ModeResponse>(
-            &response))
-    {
+    if (auto value = std::get_if<ModeResponse>(&response)) {
         QString text;
 
         switch (value->mode)
@@ -593,27 +600,80 @@ void MainWindow::radioRequestCompleted(
 
 void MainWindow::pollRadioStatus()
 {
+    return;
+    // 1. Check if the previous request was ignored
+    m_missedResponsesCount++;
+
+    if (m_missedResponsesCount >= MAX_MISSED_RESPONSES) {
+        // 2. Pause the timer
+        m_radioPollTimer->stop();
+        qDebug() << "MainWindow::pollRadioStatus(): Radio stopped responding. Polling paused.";
+        return;
+    }
+
     if (!m_radioBackend)
         return;
 
-    m_radioBackend->submit(
-        GetFrequency {
-            Vfo::A
-        });
+    qDebug().noquote() << "\n\033[32mMainWindow::pollRadioStatus(): Polling started\033[0m";
+    m_radioBackend->submit(GetFrequency {Vfo::A});
 
-    m_radioBackend->submit(
-        GetFrequency {
-            Vfo::B
-        });
+    m_radioBackend->submit(GetFrequency {Vfo::B});
 
-    m_radioBackend->submit(
-        GetMode {
-            Vfo::A
-        });
+    m_radioBackend->submit(GetMode {Vfo::A});
 
-    m_radioBackend->submit(
-        GetRfPower {});
+    m_radioBackend->submit(GetRfPower {});
 
-    m_radioBackend->submit(
-        GetTx {});
+    m_radioBackend->submit(GetTx {});
+    qDebug() << "MainWindow::pollRadioStatus(): Polling complete\n\n";
+}
+
+void MainWindow::updatePowerLabel(QString S)
+{
+    ui->labelPower->setText(S);
+}
+
+void MainWindow::resumePolling()
+{
+    m_missedResponsesCount = 0;
+    m_radioPollTimer->start(); // Resumes the 1000ms timer
+    qDebug() << "Polling resumed.";
+}
+
+QString MainWindow::radioResponseTypeName(
+    const RadioResponse &response)
+{
+    return std::visit(
+        [](const auto &value) -> QString
+        {
+            using T =
+                std::decay_t<decltype(value)>;
+
+            if constexpr (
+                std::is_same_v<T, FrequencyResponse>)
+                return "FrequencyResponse";
+
+            else if constexpr (
+                std::is_same_v<T, ModeResponse>)
+                return "ModeResponse";
+
+            else if constexpr (
+                std::is_same_v<T, RfPowerResponse>)
+                return "RfPowerResponse";
+
+            else if constexpr (
+                std::is_same_v<T, TxResponse>)
+                return "TxResponse";
+
+            else if constexpr (
+                std::is_same_v<T, AckResponse>)
+                return "AckResponse";
+
+            else if constexpr (
+                std::is_same_v<T, ErrorResponse>)
+                return "ErrorResponse";
+
+            else
+                return "Unknown";
+        },
+        response);
 }

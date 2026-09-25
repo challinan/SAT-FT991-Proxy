@@ -55,7 +55,7 @@ public slots:
         const QByteArray &data);
 
 signals:
-
+#if 0
     void requestCompleted(
         quint64 requestId,
         RadioResponse response);
@@ -63,6 +63,7 @@ signals:
     void requestFailed(
         quint64 requestId,
         QString error);
+#endif
 
     //
     // Anything received that isn't the answer to
@@ -76,6 +77,9 @@ signals:
     //
     void catTx(QByteArray frame);
     void catRx(QByteArray frame);
+
+    // UI Updates - Radio is alove
+    void firstValidFrameReceived();
 
 
 private slots:
@@ -118,6 +122,8 @@ private:
     int m_timeoutMs = 500;
 
     quint64 m_nextRequestId = 1;
+    bool first_valid_frame = 0;
+
 
 
     void pumpQueue();
@@ -133,12 +139,12 @@ private:
         const QByteArray &frame,
         QString &error) const;
 
-    bool frameMatchesActiveRequest(
-        const QByteArray &frame) const;
+    bool frameMatchesActiveRequest(const QByteArray &frame) const;
 
     void finishActive(
         const RadioResponse &response);
 
-    void failActive(
-        const QString &error);
+    void failActive(const QString &error);
+
+    QString radioRequestTypeName(const RadioRequest &request);
 };

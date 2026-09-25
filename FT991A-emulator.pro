@@ -19,7 +19,6 @@ SOURCES += \
     CivProxyController.cpp \
     Ft991CatCodec.cpp \
     Ft991Client.cpp \
-    Ft991Protocol.cpp \
     RadioCore.cpp \
     RadioCoreBackend.cpp \
     SerialPort.cpp \
@@ -36,7 +35,6 @@ HEADERS += \
     CivTypes.h \
     Ft991CatCodec.h \
     Ft991Client.h \
-    Ft991Protocol.h \
     RadioBackend.h \
     RadioCore.h \
     RadioCoreBackend.h \

@@ -1,0 +1,72 @@
+void Ft991Client::onReadyRead()
+{
+    m_rxBuffer +=
+        m_device->readAll();
+
+    qDebug() << "Ft991Client::onReadyRead(): Entered with " << m_rxBuffer.size() << "bytes";
+    if ( m_rxBuffer.isEmpty() )
+        qDebug() << "Frame:" << m_rxBuffer.toHex();
+
+    while (true)
+    {
+        qsizetype terminator =
+            m_rxBuffer.indexOf(';');
+
+        if (terminator < 0)
+            break;
+
+        QByteArray frame =
+            m_rxBuffer.left(
+                terminator + 1);
+
+        m_rxBuffer.remove(
+            0,
+            terminator + 1);
+
+        emit catRx(frame);
+
+
+        //
+        // No request pending?
+        //
+        if (!m_active)
+        {
+            emit unsolicitedFrame(frame);
+            continue;
+        }
+
+
+        //
+        // Not the response we are waiting for?
+        //
+        if (!frameMatchesActiveRequest(frame))
+        {
+            emit unsolicitedFrame(frame);
+            continue;
+        }
+
+
+        QString error;
+
+        auto response =
+            decodeResponse(
+                m_active->request,
+                frame,
+                error);
+
+        if (!response)
+        {
+            failActive(
+                QStringLiteral(
+                    "Malformed FT-991A response: %1 (%2)")
+                    .arg(
+                        QString::fromLatin1(frame),
+                        error));
+
+            continue;
+        }
+
+        finishActive(
+            *response);
+    }
+}

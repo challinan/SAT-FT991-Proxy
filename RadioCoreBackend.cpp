@@ -32,12 +32,9 @@ quint64 RadioCoreBackend::submit(
                 m_core.execute(request);
 
             if (auto error =
-                std::get_if<ErrorResponse>(
-                    &response))
+                std::get_if<ErrorResponse>(&response))
             {
-                emit requestFailed(
-                    id,
-                    error->message);
+                emit requestFailed(id, error->message);
 
                 return;
             }
