@@ -79,7 +79,7 @@ RadioResponse RadioCore::execute(const RadioRequest &request)
             else
             {
                 return ErrorResponse {
-                    QStringLiteral("Unsupported radio request")
+                    QStringLiteral("RadioCore::execute(): Unsupported radio request")
                 };
             }
         },

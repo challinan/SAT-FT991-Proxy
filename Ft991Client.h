@@ -1,5 +1,8 @@
 #pragma once
 
+#include "terminal_debug.h"
+#ifndef ENABLE_FT991_SIM
+
 #include "RadioBackend.h"
 #include "RadioTypes.h"
 
@@ -51,8 +54,7 @@ public:
     void disableAutoInformation();
 
 public slots:
-    void feedBytes(
-        const QByteArray &data);
+    void feedBytes(const QByteArray &data);
 
 signals:
 #if 0
@@ -69,14 +71,14 @@ signals:
     // Anything received that isn't the answer to
     // the current query lands here.
     //
-    void unsolicitedFrame(
-        QByteArray frame);
+    void unsolicitedFrame(QByteArray frame);
 
     //
     // Very useful while developing.
     //
     void catTx(QByteArray frame);
     void catRx(QByteArray frame);
+    void sendToLogger(const QByteArray &data, QString serialPort,  Dir dir);
 
     // UI Updates - Radio is alove
     void firstValidFrameReceived();
@@ -146,5 +148,5 @@ private:
 
     void failActive(const QString &error);
 
-    QString radioRequestTypeName(const RadioRequest &request);
 };
+#endif  // ENABLE_FT991_SIM

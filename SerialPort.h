@@ -1,5 +1,6 @@
 #pragma once
 
+#include "terminal_debug.h"
 #include <QObject>
 #include <QSerialPort>
 #include <QSerialPortInfo>
@@ -36,6 +37,7 @@ public:
 
 
     explicit SerialPort(QObject *parent = nullptr);
+    explicit SerialPort(QObject *parent = nullptr, TerminalDebug *pTermDebug = nullptr);
 
     ~SerialPort() override;
 
@@ -74,19 +76,15 @@ public:
 signals:
 
     void opened();
-
     void closed();
-
-    void byteReceived(QByteArray data);
-
     void errorOccurred(QString message);
 
     //
     // Optional diagnostics.
     //
     void bytesReceived(QByteArray data);
-
     void bytesTransmitted(QByteArray data);
+    void sendToLogger(const QByteArray &data, QString serialPort,  Dir dir);
 
 
 public slots:
@@ -97,7 +95,6 @@ public slots:
 private slots:
 
     void onReadyRead();
-
     void onError(QSerialPort::SerialPortError error);
 
 
@@ -106,4 +103,5 @@ private:
     QSerialPort m_serialport;
     QString portHumanName = "";
     Settings m_settings;
+    TerminalDebug *m_termDebug = nullptr;
 };

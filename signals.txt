@@ -81,3 +81,7 @@ SerialPort.cpp
     slot: Ft991Client::feedBytes()
     connect: mainwindow.cpp:211
 
+    signal: bytesTransmitted()
+    Description: Serial port wrote data out
+    slot: lambd() in mainwindow
+    connect: mainwindow.cpp:292

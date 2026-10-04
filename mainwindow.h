@@ -1,5 +1,4 @@
-#ifndef MAINWINDOW_H
-#define MAINWINDOW_H
+#pragma once
 
 #include <QMainWindow>
 #include <QProcess>
@@ -29,21 +28,29 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+    static QString radioResponseTypeName(const RadioResponse &response);
+    static QString radioRequestTypeName(const RadioRequest &request);
+
 private:
     void startServices();
     void resumePolling();
-    QString radioResponseTypeName(const RadioResponse &response);
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
+public slots:
+    void updateTxBwDisplay(int bw);
+    void updateRFPowerDisplay(int pwr);
+    void updateUIMainSubLEDs(CivBand b);
+    void updateSATFrequencyMain(int freq);
+    void updateSATFrequencySub(int freq);
 
 private slots:
-    void on_quit_pButton_clicked();
     void on_config_pButton_clicked();
     void on_run_pButton_clicked();
     void serialPortComboBox_activated(int index);
-    void updateSATFrequencyMain(int freq);
-    void updateSATFrequencySub(int freq);
-    void updatePowerDisplay(QString S);
+    void updatePowerDisplay(QString str);
     void radioRequestCompleted(quint64 requestId, RadioResponse response);
-    void updatePowerLabel(QString S);
     void pollRadioStatus();
 
 private:
@@ -58,6 +65,9 @@ private:
     void initializeUiLabels();
     bool openCivSerial();
     bool openFT991Serial();
+    TerminalDebug *m_pD;
+    QString m_loggerPath = "trace.txt";
+
 
     //
     // Serial hardware
@@ -73,7 +83,5 @@ private:
     CivProxyController *m_proxy = nullptr;
     Ft991Client *m_ft991Client = nullptr;
     RadioBackend *m_radioBackend = nullptr;
-
-public slots:
 };
-#endif // MAINWINDOW_H
+

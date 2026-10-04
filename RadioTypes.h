@@ -65,6 +65,8 @@ struct SetMode
     RadioMode mode;
 };
 
+struct SelectVfoMode {};
+
 struct GetRfPower
 {
 };
@@ -83,16 +85,44 @@ struct SetTx
     bool transmit;
 };
 
+/*
+ * FT command is used to set split on or off as follows:
+ * FT2; sets split off
+ * FT3; sets split on, with VFO-B as TX
+ * Note FT-991A does not support TX on VFO-A while in split more
+ */
+struct SetSplit{
+    bool split;
+};
 
+struct SetVfoModeViaMA{
+};
+
+struct SetMemChannel{
+    int channel;
+};
+
+struct SwapAB {};
+
+/*
+ *  NOTE: when adding here, be sure to add to the helper
+ * routine MainWindow::radioRequestTypeName()
+ * as well as encodeRequest in Ft991Client.cpp
+ */
 using RadioRequest = std::variant<
     GetFrequency,
     SetFrequency,
+    SelectVfoMode,
     GetMode,
     SetMode,
     GetRfPower,
     SetRfPower,
     GetTx,
-    SetTx
+    SetTx,
+    SetSplit,
+    SetVfoModeViaMA,
+    SetMemChannel,
+    SwapAB
     >;
 
 
@@ -122,6 +152,7 @@ struct TxResponse
 
 struct AckResponse
 {
+    bool ackReceived;
 };
 
 struct ErrorResponse

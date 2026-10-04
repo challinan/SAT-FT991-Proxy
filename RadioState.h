@@ -8,6 +8,7 @@
 
 struct RadioState
 {
+
     quint64 frequencyA = 144200000;
     quint64 frequencyB = 432100000;
 

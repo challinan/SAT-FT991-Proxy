@@ -22,6 +22,14 @@ CivProtocol::CivProtocol(
 {
 }
 
+void CivProtocol::init() {
+    // Initial state
+    m_selectedBand = CivBand::Main;
+    emit updateMainSubLeds(m_selectedBand);
+    m_selectedVfo = selectedVfo();
+
+}
+
 /*
  * Byte Helper:
  * Using this avoids signed-char ugliness:
@@ -54,57 +62,51 @@ void CivProtocol::feedBytes(
     const QByteArray &data)
 {
     // qDebug() << "CivProtocol::feedBytes(): Entered with data:" << data.toHex();
-    m_rxBuffer += data;
+    for (char ch : data) {
 
-    const QByteArray preamble = QByteArray::fromHex("FEFE");
+        const quint8 b = static_cast<quint8>(ch);
 
-    while (true) {
+        switch (m_rxState) {
 
-        qsizetype start = m_rxBuffer.indexOf(preamble);
+        case RxState::WaitingForFe1:
+            if (b == 0xFE) {
+                m_rxFrame.clear();
+                m_rxFrame.append(ch);
+                m_rxState = RxState::WaitingForFe2;
+            }
+            break;
 
-        if (start < 0) {
-            /*
-             * Preserve one trailing FE in case
-             * the next block begins with FE.
-             */
-            if (!m_rxBuffer.isEmpty() &&
-                byteAt(m_rxBuffer, m_rxBuffer.size() - 1) == CIV_PREAMBLE) {
-                m_rxBuffer = QByteArray(1, char(0xFE));
+        case RxState::WaitingForFe2:
+            if (b == 0xFE) {
+                m_rxFrame.append(ch);
+                m_rxState = RxState::ReceivingFrame;
             }
             else {
-                m_rxBuffer.clear();
+                // False start.
+                m_rxFrame.clear();
+                m_rxState = RxState::WaitingForFe1;
+            }
+            break;
+
+        case RxState::ReceivingFrame:
+            m_rxFrame.append(ch);
+
+            if (b == 0xFD) {
+
+                QByteArray frame = m_rxFrame;
+
+                resetReceiver();
+
+                processFrame(frame);
+            }
+            else if (m_rxFrame.size() > MaxCivFrameSize) {
+
+                emit framingError(m_rxFrame);
+                resetReceiver();
             }
 
-            return;
+            break;
         }
-
-        if (start > 0) {
-            m_rxBuffer.remove(0, start);
-        }
-
-        qsizetype end = m_rxBuffer.indexOf(char(CIV_END), 4);
-
-        if (end < 0)
-            return;
-
-        QByteArray frame = m_rxBuffer.left(end + 1);
-
-        m_rxBuffer.remove(0, end + 1);
-
-        // Ensure the frame is long enough to prevent overrun issues
-        if (frame.size() >= 4) {
-
-            // Is this a valid OK frame?
-            if (frame.startsWith("\xFE\xFE") && frame.endsWith("\xFB\xFD")) {
-                qDebug() << "CivProtocol::feedBytes(): Frame received: ** OK **";
-            } else {
-                qDebug() << "CivProtocol::feedBytes(): Frame received:" << frame.toHex();
-            }
-        }
-
-        // emit frameReceived(frame);
-
-        processFrame(frame);
     }
 }
 
@@ -119,16 +121,25 @@ void CivProtocol::feedBytes(
 void CivProtocol::processFrame(
     const QByteArray &frame)
 {
+    // qDebug() << "CivProtocol::processFrame(): Entered:" << frame.toHex();
     /*
      * Minimum:
      *
      * FE FE TO FROM CMD FD
      */
+    CivRequestContext context;
+    const quint8 destination = static_cast<quint8>(frame.at(2));
+    const quint8 source = static_cast<quint8>(frame.at(3));
+
+    context.radioAddress = destination;
+    context.controllerAddress = source;
+    context.command = frame.mid(4, frame.size() - 5);
+    context.originalFrame = frame;
+
     if (frame.size() < 6) {
         emit protocolError(QStringLiteral("CI-V frame too short"));
         return;
     }
-
 
     if (byteAt(frame, 0) != CIV_PREAMBLE ||
         byteAt(frame, 1) != CIV_PREAMBLE ||
@@ -136,12 +147,9 @@ void CivProtocol::processFrame(
             != CIV_END)
     {
         emit protocolError(QStringLiteral("CivProtocol::processFrame(): Invalid CI-V framing"));
+        sendNg(context);
         return;
     }
-
-    quint8 destination = byteAt(frame, 2);
-
-    quint8 source = byteAt(frame, 3);
 
     /*
      * Ignore frames not addressed to our virtual IC-9700.
@@ -152,23 +160,27 @@ void CivProtocol::processFrame(
     if (destination != m_radioAddress)
         return;
 
-    CivRequestContext context;
-
-    context.radioAddress = destination;
-    context.controllerAddress = source;
-    context.command = frame.mid(4, frame.size() - 5);
-    context.originalFrame = frame;
-
     if (context.command.isEmpty())
         return;
 
-    processCommand(context);
-
-    // On the first valid frame, set the UI status LED
-    if ( !first_valid_frame ) {
-        emit firstValidFrameReceived();
-        first_valid_frame = true;
+    if ( frame.indexOf("\xfe\xfe", 3) != -1 ) {
+        // Frame contains multiple preamble sequences, discard it
+        sendNg(context);
+        return;
     }
+
+    if (destination == 0xA2 && source == 0xE0) {
+        emit sendToLogger(frame, "SAT", Dir::in);
+        processCommand(context);
+
+        // On the first valid frame, set the UI status LED
+        if ( !first_valid_frame ) {
+            emit firstValidFrameReceived();
+            first_valid_frame = true;
+        }
+        return;
+    }
+
 }
 
 /*
@@ -186,74 +198,139 @@ void CivProtocol::processCommand(
 
     switch (command)
     {
+    case 0x00:
+        qDebug() << "CivProtocol::processCommand(): Processing 'Send the Frequency Data - Transceive'" << context.originalFrame.toHex();
+        handleFrequencyRead(context);
+        break;
+
+    case 0x01:
+        qDebug() << "CivProtocol::processCommand(): Processing 'Mode and Filter Setting'" << context.originalFrame.toHex();
+        handleModeFilter(context);
+        break;
+
     case 0x03:
-        qDebug() << "CivProtocol::processCommand(): Processing FrequencyRead command";
+        qDebug() << "CivProtocol::processCommand(): Processing FrequencyRead[0x03] command" << context.originalFrame.toHex();
         handleFrequencyRead(context);
         break;
 
     case 0x04:
-        qDebug() << "CivProtocol::processCommand(): Processing ReadMode command";
+        qDebug() << "CivProtocol::processCommand(): Processing ReadMode command" << context.originalFrame.toHex();
         handleModeRead(context);
         break;
 
     case 0x05:
-        qDebug() << "CivProtocol::processCommand(): Processing FrequencySet command";
+        qDebug() << "CivProtocol::processCommand(): Processing FrequencySet [05] command" << context.originalFrame.toHex();
         handleFrequencySet(context);
         break;
 
     case 0x06:
-        qDebug() << "CivProtocol::processCommand(): Processing ModeSet command";
+        qDebug() << "CivProtocol::processCommand(): Processing ModeSet command" << context.originalFrame.toHex();
         handleModeSet(context);
         break;
 
     case 0x07:
-        // qDebug() << "CivProtocol::processCommand(): Processing Main/Sub/Vfo command";
+        // qDebug() << "CivProtocol::processCommand(): Processing Main/Sub/Vfo command" << context.originalFrame.toHex();
         handleVfoCommand(context);
         break;
 
+    case 0x0f:
+        if ( context.command.length() == 1 ) {
+            //S.A.T. is asking for split status
+            QByteArray reply = QByteArray::fromHex("0f00");
+            sendResponse(context, reply);
+            return;
+        }
+
+        if ( context.command.at(1) == 1 ) {
+            m_icomSplit = true;
+        }
+        else {
+            if ( context.command.at(1) == 0 )
+                m_icomSplit = false;
+        }
+        qDebug() << "CivProtocol::processCommand(): Processing SPLIT On/OFF:" << m_icomSplit << context.originalFrame.toHex();
+        // IC-9700 has MAIN/SUB as well as Split.  Don't set FT-991A to split off, that defeats the config we want.
+        // emit radioRequest(context, SetSplit {m_icomSplit});
+        sendAck(context);
+        return;
+
     case 0x14:
-        //qDebug() << "CivProtocol::processCommand(): Processing 14(multi) command command";
+        // qDebug() << "CivProtocol::processCommand(): Processing 14(multi) command command" << context.originalFrame.toHex();
         handle14(context);
         break;
 
     case 0x16:
-        //qDebug() << "CivProtocol::processCommand(): Processing 0x16(multi) command";
+        // qDebug() << "CivProtocol::processCommand(): Processing 0x16(multi) command" << context.originalFrame.toHex();
         handle16(context);
         break;
 
     case 0x1A:
-        qDebug() << "CivProtocol::processCommand(): Processing 0x1A(multi) command";
+        qDebug() << "CivProtocol::processCommand(): Processing 0x1A(multi) command" << context.originalFrame.toHex();
         handle1A(context);
         break;
 
-    default:
-        emit unsupportedFrame(
-            context.originalFrame);
-        qDebug() << "CivProtocol::processCommand(): Unsupported Frame";
+    case 0x21:
+        qDebug() << "CivProtocol::processCommand(): Processing RIT Freq/Offset command ->> NOP" << context.originalFrame.toHex();
+        if ( context.command.length() > 10 ) {
+            // I've seen these bad packets that are more then 18 bytes long, and they are corrupt
+            sendNg(context);
+            return;
+        }
+        sendAck(context);
+        break;
 
+    case 0x27:
+        qDebug() << "CivProtocol::processCommand(): Processing SCOPE setting ->> NOP" << context.originalFrame.toHex();
+        sendNg(context);
+        break;
+
+    // Tuning Step
+    case 0xF1:
+        m_tuningStep = 10;
+        sendAck(context);
+        return;
+
+    default:
+        emit unsupportedFrame(context.originalFrame);
         sendNg(context);
         break;
     }
 }
 
 /*
- * Command 03 — read frequency
+ * Command 00/03 — read frequency
  */
 void CivProtocol::handleFrequencyRead(
     const CivRequestContext &context)
 {
-    if (context.command.size() != 1) {
-        sendNg(context);
+    // Is this a read command or set command?
+    RadioRequest request;
+    if (context.command.size() == 1) {
+        qDebug() << "CivProtocol::handleFrequencyRead():" << context.originalFrame.toHex();
+        if (m_selectedBand == CivBand::Main) {
+            request = GetFrequency {Vfo::A};
+        }
+        else {
+            request = GetFrequency {Vfo::B};
+        }
+
+        emit radioRequest(context, request);
         return;
     }
 
-    RadioRequest request = GetFrequency {m_selectedVfo};
+    if ( context.command.size() == 6 ) {
+        qDebug() << "CivProtocol::handleFrequencyRead(): Set Frequency Command" << context.originalFrame.toHex();
+        handleFrequencySet(context);
+        return;
+    }
 
-    emit radioRequest(context, request);
+    sendNg(context);
+    return;
 }
 
 /*
  * Command 05 — set frequency
+ *  Also handles 00/03 from above
  *
  * The IC-9700 uses five BCD bytes for operating frequency,
  * least-significant digit-pair first. For example, the documented
@@ -263,36 +340,32 @@ void CivProtocol::handleFrequencyRead(
 void CivProtocol::handleFrequencySet(
     const CivRequestContext &context)
 {
-    //
-    // CMD + five BCD frequency bytes
-    //
-    if (context.command.size() != 6)
-    {
+    /*
+     * CMD + five BCD frequency bytes
+     */
+    if (context.command.size() != 6) {
         sendNg(context);
         return;
     }
 
-    auto hz =
-        decodeFrequency(
-            context.command.mid(1));
+    auto hz = decodeFrequency(context.command.mid(1));
 
-    if (!hz)
-    {
+    if (!hz) {
         sendNg(context);
         return;
     }
 
+    RadioRequest request = SetFrequency {selectedVfo(), *hz};
+    emit radioRequest(context, request);
 
-    RadioRequest request =
-        SetFrequency {
-            m_selectedVfo,
-            *hz
-        };
-
-    emit radioRequest(
-        context,
-        request);
-}
+//    if ( m_selectedVfo == Vfo::A ) {
+    if ( m_selectedBand == CivBand::Main ) {
+        emit updateMainFreqDisplay(*hz);
+    }
+    else {
+        emit updateSubFreqDisplay(*hz);
+    }
+ }
 
 /*
  * The Decoder
@@ -304,43 +377,28 @@ CivProtocol::decodeFrequency(
     if (data.size() != 5)
         return std::nullopt;
 
-
     quint64 frequency = 0;
     quint64 multiplier = 1;
 
+    for (qsizetype i = 0; i < data.size(); ++i) {
+        quint8 b = byteAt(data, i);
 
-    for (qsizetype i = 0;
-         i < data.size();
-         ++i)
-    {
-        quint8 b =
-            byteAt(data, i);
+        int low = b & 0x0F;
 
-        int low =
-            b & 0x0F;
-
-        int high =
-            (b >> 4) & 0x0F;
+        int high = (b >> 4) & 0x0F;
 
 
-        if (low > 9 ||
-            high > 9)
-        {
+        if (low > 9 || high > 9) {
             return std::nullopt;
         }
 
 
-        frequency +=
-            quint64(low) *
-            multiplier;
+        frequency += quint64(low) * multiplier;
 
-        frequency +=
-            quint64(high) *
-            multiplier * 10;
+        frequency += quint64(high) * multiplier * 10;
 
         multiplier *= 100;
     }
-
 
     return frequency;
 }
@@ -392,29 +450,20 @@ QByteArray CivProtocol::encodeFrequency(
 void CivProtocol::handleModeRead(
     const CivRequestContext &context)
 {
-    if (context.command.size() != 1)
-    {
+    if (context.command.size() != 1) {
         sendNg(context);
         return;
     }
 
-    emit radioRequest(
-        context,
-        GetMode {
-            m_selectedVfo
-        });
+    emit radioRequest(context, GetMode {selectedVfo()});
 }
 
 void CivProtocol::handleModeSet(
     const CivRequestContext &context)
 {
-    //
-    // 06 MODE
-    //
-    // or
-    //
-    // 06 MODE FILTER
-    //
+    /*
+     * 06 MODE FILTER
+     */
     if (context.command.size() < 2 ||
         context.command.size() > 3)
     {
@@ -423,10 +472,7 @@ void CivProtocol::handleModeSet(
     }
 
 
-    quint8 mode =
-        byteAt(
-            context.command,
-            1);
+    quint8 mode = byteAt(context.command, 1);
 
     quint8 filter = 0x01;
 
@@ -439,24 +485,14 @@ void CivProtocol::handleModeSet(
     }
 
 
-    auto radioMode =
-        decodeMode(
-            mode,
-            filter);
+    auto radioMode = decodeMode(mode, filter);
 
-    if (!radioMode)
-    {
+    if (!radioMode) {
         sendNg(context);
         return;
     }
 
-
-    emit radioRequest(
-        context,
-        SetMode {
-            m_selectedVfo,
-            *radioMode
-        });
+    emit radioRequest(context, SetMode {selectedVfo(), *radioMode});
 }
 
 /*
@@ -589,86 +625,78 @@ CivProtocol::encodeMode(
 void CivProtocol::handleVfoCommand(
     const CivRequestContext &context)
 {
-    /*
-     *  Bare 07:
-     *
-     *  Select VFO mode.
+    /* 
+     *  CMD 07:
+     *  VFO mode commands
      */
-    if (context.command.size() == 1)
-    {
-        QByteArray reply = QByteArrayLiteral("\x1A\x05\x01\x31");
+    RadioRequest request;
 
-        reply.append(char(m_dataEchoBack ? 0x01 : 0x00));
-
-        // I believe a straight 0x07 without another byte is an error
-        // But for now we'll assme it is asking for VFO Mode, and
-        // Return 0x00: Active on VFO A (according to a random Google search)
+    // A single 0x07 is a valid request to select VFO mode (in case the radio is in Memory mode, for example
+    if (context.command.size() == 1) {
+        qDebug() << "CivProtocol::handleVfoCommand(): Select VFO Mode" << context.command;
+        request = SelectVfoMode {};
+        emit radioRequest(context, request);
         sendAck(context);
-        qDebug() << "CivProtocol::handleVfoCommand(): 0x07 alone Switch/Select VFO Mode";
-        return;
-    }
-
-
-    if (context.command.size() != 2) {
-        sendNg(context);
         return;
     }
 
     quint8 sub = byteAt(context.command, 1);
 
     switch (sub) {
-    //
-    // Select VFO A.
-    //
+    // Select VFO A
     case 0x00:
-        m_selectedVfo = Vfo::A;
+        m_selectedVfo = selectedVfo();
         sendAck(context);
         return;
 
-
-    //
     // Select VFO B.
-    //
     case 0x01:
-        m_selectedVfo = Vfo::B;
+        m_selectedVfo = selectedVfo();
         sendAck(context);
         return;
 
+    // Exchange (Swap) Main and Sub Bands.
+    // How we deal with sub bands is going to be tricky.  The FT-991A has AB; for this
+    case 0xB0:
+        // m_selectedBand = (m_selectedBand == CivBand::Main) ? CivBand::Sub : CivBand::Main;
+        // emit updateMainSubLeds(m_selectedBand);
+        request = SwapAB {};
+        emit radioRequest(context, request);
+        sendAck(context);
+        return;
 
-    //
-    // MAIN
-    //
+    /*
+     *  Select MAIN
+     *  On the IC-9700, the MAIN band is used for the downlink (Receive Frequency)
+     *  On the FT-991A, split mode has TX on VFO-B
+     */
     case 0xD0:
-        m_selectedVfo = Vfo::A;
+        // Select the MAIN band command
+        m_selectedBand = CivBand::Main;
+        emit updateMainSubLeds(m_selectedBand);
         sendAck(context);
         return;
 
-
-    //
-    // SUB
-    //
+    /*
+     *  Select SUB
+     *  On the IC-9700, the SUB band is used for the uplink (Transmit Frequency)
+     */
     case 0xD1:
-        m_selectedVfo = Vfo::B;
+        // Select the MAIN band command
+        m_selectedBand = CivBand::Sub;
+        emit updateMainSubLeds(m_selectedBand);
         sendAck(context);
         return;
 
-
-    default:
-        emit unsupportedFrame(
-            context.originalFrame);
-
+     default:
+        emit unsupportedFrame(context.originalFrame);
         sendNg(context);
         return;
     }
 }
 
 /*
- * 14 0A — RF power
- *
- * The IC-9700 command family 14 uses two BCD bytes representing
- * a value from 0000–0255 for RF power. The Yaesu FT-991A PC
- * command uses 005–100, so an internal representation as a
- * percentage is a reasonable normalization.
+ * 14 Family of commands
  */
 void CivProtocol::handle14(
     const CivRequestContext &context)
@@ -689,6 +717,10 @@ void CivProtocol::handle14(
     /*
      * 14 0A
      * Read RF power
+     * The IC-9700 command family 14 uses two BCD bytes representing
+     * a value from 0000–0255 for RF power. The Yaesu FT-991A PC
+     * command uses 005–100, so an internal representation as a
+     * percentage is a reasonable normalization.
      */
     if (context.command.size() == 2) {
         emit radioRequest(context, GetRfPower {});
@@ -712,6 +744,8 @@ void CivProtocol::handle14(
         int percent = qRound((*raw * 100.0) / 255.0);
 
         emit radioRequest(context, SetRfPower {percent});
+        int watts = 50 * percent;
+        emit updateRfPwr(watts);
 
         return;
     }
@@ -805,65 +839,97 @@ QByteArray CivProtocol::encodeLevel(
 void CivProtocol::handle16(
     const CivRequestContext &context)
 {
-    if (context.command.size() < 2)
-    {
+    if (context.command.size() < 2) {
         sendNg(context);
         return;
     }
 
-
-    quint8 sub =
-        byteAt(
-            context.command,
-            1);
-
+    quint8 sub = byteAt( context.command, 1);
 
     /*
-     * 16 58
-     * Read/Send SSB transmit bandwidth.
+     * 16 42
+     * Set	the Repeater Tone function..
      */
-    if (sub == 0x58)
-    {
-        // Read
-        if (context.command.size() == 2)
-        {
-            QByteArray reply =
-                QByteArray::fromHex(
-                    "1658");
+    if (sub == 0x42) {
+        // Set
+        if (context.command.size() == 3) {
 
-            reply.append(
-                char(m_ssbTxBandwidth));
-
-            sendResponse(context, reply);
-            qDebug() << "CivProtocol::handle16(): Read TX Bandwidth";
+            sendAck(context);
+            qDebug() << "CivProtocol::handle16(): Repeater Tone Function  --> NOP";
 
             return;
         }
+    }
 
+    /*
+     * 16 58
+     * Read SSB transmit bandwidth.
+     */
+    if (sub == 0x58) {
+        // Read
+        if (context.command.size() == 2) {
+            QByteArray reply = QByteArray::fromHex("1658");
 
+            reply.append(char(m_ssbTxBandwidth));
+
+            sendResponse(context, reply);
+            emit updateTXBw(m_ssbTxBandwidth);
+            qDebug() << "CivProtocol::handle16():" << ((context.command.size() == 2) ? "Read" : "Set") << "TX Bandwidth";
+
+            return;
+        }
+    }
+
+    /*
+     * 16 58
+     * Set SSB transmit bandwidth.
+     */
+    if (context.command.size() == 3) {
+        quint8 value = byteAt(context.command, 2);
+
+        if (value > 0x02) {
+            sendNg(context);
+            return;
+        }
+
+        m_ssbTxBandwidth = value;
+        sendAck(context);
+        emit updateTXBw(m_ssbTxBandwidth);
+
+        return;
+    }
+
+    /*
+     * 16 59
+     * Send/read the sub band (the Dualwatch function).
+     */
+    // Read
+    if (sub == 0x59) {
+        // Read
+        if (context.command.size() == 2) {
+            // Reply that it is OFF
+            QByteArray reply = QByteArray::fromHex("00");
+
+            sendResponse(context, reply);
+            qDebug() << "CivProtocol::handle16(): Read sub band (Dualwatch)";
+
+            return;
+        }
         // Set
-        if (context.command.size() == 3)
-        {
-            quint8 value =
-                byteAt(context.command, 2);
+        if (context.command.size() == 3) {
+            quint8 value = byteAt(context.command, 2);
 
-            if (value > 0x02)
-            {
+            if (value > 0x02) {
                 sendNg(context);
                 return;
             }
+            qDebug() << "CivProtocol::handle16(): SET sub band (Dualwatch) >> NOP";
 
-            m_ssbTxBandwidth = value;
             sendAck(context);
 
             return;
         }
-
-
-        sendNg(context);
-        return;
     }
-
 
     //
     // 16 5A
@@ -880,8 +946,7 @@ void CivProtocol::handle16(
             QByteArray reply =
                 QByteArray::fromHex("165A");
 
-            reply.append(
-                char(m_satelliteMode ? 0x01 : 0x00));
+            reply.append(char(m_satelliteMode ? 0x01 : 0x00));
 
             sendResponse(context, reply);
             qDebug() << "CivProtocol::handle16(): Read Satellite Mode command";
@@ -895,19 +960,14 @@ void CivProtocol::handle16(
         //
         if (context.command.size() == 3)
         {
-            quint8 value =
-                byteAt(
-                    context.command,
-                    2);
+            quint8 value = byteAt(context.command, 2);
 
-            if (value > 1)
-            {
+            if (value > 1) {
                 sendNg(context);
                 return;
             }
 
-            m_satelliteMode =
-                value != 0;
+            m_satelliteMode = value != 0;
 
             sendAck(context);
 
@@ -919,6 +979,67 @@ void CivProtocol::handle16(
         return;
     }
 
+    emit unsupportedFrame(context.originalFrame);
+    sendNg(context);
+}
+
+/*
+ * 1A Command has many sub commands
+ */
+void CivProtocol::handle1A(
+    const CivRequestContext &context)
+{
+
+    if (context.command.size() < 3)
+    {
+        qDebug() << "CivProtocol::handle1A(): Possible malformed command less than 3 bytes?" << context.command.toHex();
+        sendNg(context);
+        return;
+    }
+
+    quint8 sub = byteAt(context.command, 1);
+
+    if (sub == 0x05) {
+        // 1A 05 has many possible commands
+        handle1A05(context);
+        return;
+    }
+
+    // Data mode with filter width settings
+    if (sub == 0x06) {
+        /*
+         * 1A 06 DD FF Data Mode with Filter Settings
+         * DD - Data Mode ->> 00 = OFF, 01 = ON
+         * FF - Filter Mode ->> 01 = FIL1, 02 = FIL2, 03 - FIL3
+         * Note: C-IV Reference says "*When Data Mode is set to 00, must also set also set 00 to Filter Mode"
+         */
+        if ( context.command.length() == 4 ) {
+            qDebug() << "CivProtocol::handle1A(): Data mode with filter width settings ----------------------->> FAKING IT";
+            // Fake it for now
+            sendAck(context);
+
+            return;
+
+        }
+        else {
+            qDebug() << "CivProtocol::handle1A(): Possible malformed command (1A 06) should be 4 bytes?" << context.command.toHex();
+            sendNg(context);
+        }
+    return;
+    }
+
+    quint8 addressHigh = byteAt(context.command, 2);
+    quint8 addressLow = byteAt(context.command, 3);
+
+    /*
+     * Set Transceive - same as FT-991A Auto Information (AI) command
+     * Send unsolicited status reponses from radio
+     */
+    if (addressHigh == 0x01 &&
+        addressLow == 0x27) {
+            qDebug() << "CivProtocol::handle1A(): Set Transceive ??????????????????";
+        sendAck(context);
+    }
 
     emit unsupportedFrame(
         context.originalFrame);
@@ -926,67 +1047,34 @@ void CivProtocol::handle16(
     sendNg(context);
 }
 
-/*
- * 1A 05 01 31
- * These can also stay inside the virtual IC-9700
- */
-void CivProtocol::handle1A(
-    const CivRequestContext &context)
+void CivProtocol::handle1A05(const CivRequestContext &context)
 {
-    //
-    // Need at least:
-    //
-    // 1A 05 XX XX
-    //
-    if (context.command.size() < 4)
-    {
-        sendNg(context);
-        return;
-    }
+    // 0x1A 0x05 has many command possibilities
 
-    quint8 sub = byteAt(context.command, 1);
+    // Combine byte 2 and 3 into a single 16-bit integer
+    uint16_t subCommand = (static_cast<uint8_t>(context.command[2]) << 8) | static_cast<uint8_t>(context.command[3]);
 
-    if (sub != 0x05)
-    {
-        emit unsupportedFrame(
-            context.originalFrame);
+    switch (subCommand) {
+    case 0x0127: // Matches byte 2 == 0x01 and byte 3 == 0x27
+        // Set Transceive mode (1A05 0127)
+        qDebug() << "CivProtocol::handle1A05(): ***---***---***---***--- S.A.T WANTS TRANSCEIVE MODE ---***---***---***---***---***";
+        sendAck(context);
+        break;
 
-        sendNg(context);
-        return;
-    }
-
-
-    quint8 addressHigh =
-        byteAt(
-            context.command,
-            2);
-
-    quint8 addressLow =
-        byteAt(
-            context.command,
-            3);
-
-
-    //
-    // SET > Connectors > CI-V >
-    // CI-V DATA Echo Back
-    //
-    // 1A 05 01 31
-    //
-    if (addressHigh == 0x01 &&
-        addressLow == 0x31)
-    {
-
+    case 0x0131:
         /*
-         * Read: 1A 05 01 31
+         * SET > Connectors > CI-V > CI-V DATA Echo Back
+         * 1A 05 01 31
          */
+
+
+        // Read: 1A 05 01 31
         if (context.command.size() == 4) {
             QByteArray reply = QByteArrayLiteral("\x1A\x05\x01\x31");
 
             reply.append(char(m_dataEchoBack ? 0x01 : 0x00));
             sendResponse(context, reply);
-            qDebug() << "CivProtocol::handle1A(): Read DATA echo back command";
-
+            qDebug() << "CivProtocol::handle1A(): Read DATA echo back command: Reply with EchoBack = " << m_dataEchoBack;
             return;
         }
 
@@ -1009,13 +1097,16 @@ void CivProtocol::handle1A(
             qDebug() << "CivProtocol::handle1A(): Set DATA echo back command" << (value ? "ON" : "OFF");
             return;
         }
+        break;
+
+
+    default:
+        qDebug() << "CivProtocol::handle1A05(): ***---***---***---***--- Unsupported 1A05 Request ---***---***---***---***---***" << context.command.toHex();
+        sendNg(context);
+        break;
     }
 
-
-    emit unsupportedFrame(
-        context.originalFrame);
-
-    sendNg(context);
+    return;
 }
 
 /*
@@ -1027,35 +1118,19 @@ QByteArray CivProtocol::makeResponse(
 {
     QByteArray result;
 
-    result.reserve(
-        body.size() + 5);
+    result.reserve(body.size() + 5);
 
+    result.append(char(0xFE));
+    result.append(char(0xFE));
 
-    result.append(
-        char(0xFE));
-
-    result.append(
-        char(0xFE));
-
-
-    //
-    // Reverse request addresses.
-    //
-    result.append(
-        char(
-            context.controllerAddress));
-
-    result.append(
-        char(
-            context.radioAddress));
-
+    /*
+     * Reverse request addresses.
+     */
+    result.append(char(context.controllerAddress));
+    result.append(char(context.radioAddress));
 
     result += body;
-
-
-    result.append(
-        char(0xFD));
-
+    result.append(char(0xFD));
 
     return result;
 }
@@ -1065,22 +1140,18 @@ void CivProtocol::sendResponse(
     const CivRequestContext &context,
     const QByteArray &body)
 {
-    qDebug() << "CivProtocol::sendResponse():" << body.toHex() << context.command.toHex();
-    emit frameReady(makeResponse(context, body));
-}
+    QByteArray response = makeResponse(context, body);
 
+    emit frameReady(response);
+}
 
 void CivProtocol::sendAck(
     const CivRequestContext &context)
 {
     QByteArray body;
+    body.append(char(CIV_OK));
 
-    body.append(
-        char(CIV_OK));
-
-    sendResponse(
-        context,
-        body);
+    sendResponse(context, body);
 }
 
 
@@ -1088,13 +1159,9 @@ void CivProtocol::sendNg(
     const CivRequestContext &context)
 {
     QByteArray body;
+    body.append(char(CIV_NG));
 
-    body.append(
-        char(CIV_NG));
-
-    sendResponse(
-        context,
-        body);
+    sendResponse(context, body);
 }
 
 /*
@@ -1136,9 +1203,7 @@ void CivProtocol::handleRadioResponse(
 
         body += encodeFrequency(value->hz);
 
-        sendResponse(
-            context,
-            body);
+        sendResponse(context, body);
 
         return;
     }
@@ -1160,28 +1225,18 @@ void CivProtocol::handleRadioResponse(
         }
 
 
-        auto mode =
-            encodeMode(
-                value->mode);
+        auto mode = encodeMode(value->mode);
 
-        if (!mode)
-        {
+        if (!mode) {
             sendNg(context);
             return;
         }
 
-
         QByteArray body;
-
-        body.append(
-            char(0x04));
-
+        body.append(char(0x04));
         body += *mode;
 
-
-        sendResponse(
-            context,
-            body);
+        sendResponse(context, body);
 
         return;
     }
@@ -1191,11 +1246,11 @@ void CivProtocol::handleRadioResponse(
     // 14 0A -- RF power
     //
     if (command == 0x14 &&
-        context.command.size() >= 2 &&
-        byteAt(context.command, 1) == 0x0A)
-    {
-        qDebug() << "CivProtocol::handleRadioResonse(): Entered";
-        // RF power response
+        byteAt(context.command, 1) == 0x0A &&
+        context.command.size() >= 2)
+     {
+        // This is a read request to read radio power - send back the response
+        qDebug() << "CivProtocol::handleRadioResonse(): RF Power Query/Set response";
         if (context.command.size() == 2) {
             auto value = std::get_if<RfPowerResponse>(&response);
 
@@ -1207,8 +1262,7 @@ void CivProtocol::handleRadioResponse(
             // IC-9700 uses 0000-0255 as percent power.  FT-991A reports watts
             const int maxWatts = 50;
 
-            double fraction =
-                static_cast<double>(value->watts) / maxWatts;
+            double fraction = static_cast<double>(value->watts) / maxWatts;
 
             fraction = std::clamp(fraction, 0.0, 1.0);
 
@@ -1221,11 +1275,11 @@ void CivProtocol::handleRadioResponse(
             body += encodeLevel(civValue);
 
             sendResponse(context, body);
+            emit updateRfPwr(value->watts);
 
             return;
         }
     }
-
 
     //
     // All of our currently supported backend
@@ -1268,10 +1322,6 @@ void CivProtocol::handleRadioFailure(
     sendNg(context);
 }
 
-void CivProtocol::setPortHumanName(QString s) {
-    portHumanName = s;
-}
-
 int CivProtocol::maxPowerWattsForFrequency(
     quint64 hz) const
 {
@@ -1291,4 +1341,71 @@ int CivProtocol::maxPowerWattsForFrequency(
     }
 
     return 100;
+}
+
+void CivProtocol::handleModeFilter(const CivRequestContext &context) {
+
+    // Isolate Mode and Filter bytes
+    // C-IV CMD: 01 XX XX
+    quint16 modeByte = context.command.at(1);
+    quint16 filterByte = context.command.at(2);
+    qDebug() << "CivProtocol::handleModeFilter(): mode is" << modeByte << "filter is" << filterByte;
+
+    RadioMode mode;
+
+    switch (modeByte) {
+    case 0:
+        mode = RadioMode::Lsb;
+        break;
+    case 1:
+        mode = RadioMode::Usb;
+        break;
+    case 2:
+        mode = RadioMode::Am;
+        break;
+    case 3:
+        mode = RadioMode::CwU;
+        break;
+    case 4:
+        mode = RadioMode::RttyUsb;
+        break;
+    case 5:
+        mode = RadioMode::Fm;
+        break;
+    case 7:
+        mode = RadioMode::CwL;
+        break;
+    case 8:
+        mode = RadioMode::RttyLsb;
+        break;
+    case 17:
+        mode = RadioMode::DataFm;
+        break;
+    case 22:
+        mode = RadioMode::DataFm;
+        break;
+    }
+
+    if ( m_selectedBand == CivBand::Main ) {
+        emit radioRequest(context, SetMode {selectedVfo(), mode});
+    }
+    else {
+        //  FT991A does not have a command to directly set the mode in VFO B
+        emit radioRequest(context, SwapAB {} );
+        emit radioRequest(context, SetMode {selectedVfo(), mode});
+        emit radioRequest(context, SwapAB {} );
+    }
+    sendAck(context);
+
+}
+
+void CivProtocol::resetReceiver()
+{
+    m_rxFrame.clear();
+    m_rxState = RxState::WaitingForFe1;
+}
+
+Vfo CivProtocol::selectedVfo() const
+{
+    return m_selectedBand == CivBand::Main ? Vfo::B : Vfo::A;
 }

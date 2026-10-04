@@ -1,5 +1,18 @@
 QT       += core gui serialport network
 
+# DEFINES += ENABLE_FT991_SIM
+
+# Code blocks applied ONLY during Release builds
+CONFIG(release, debug|release) {
+    # e.g., turn off extra internal logging, or link production libs
+    DEFINES += NODEBUG QT_NO_DEBUG_OUTPUT
+}
+
+# Code blocks applied ONLY during Debug builds
+CONFIG(debug, debug|release) {
+    DEFINES += USE_TERM_DEBUGLOGGER
+}
+
 greaterThan(QT_MAJOR_VERSION, 5): QT += widgets
 
 CONFIG += c++11
@@ -23,11 +36,12 @@ SOURCES += \
     RadioCoreBackend.cpp \
     SerialPort.cpp \
     ft991a_proxy.cpp \
-    idle_sleep_notifications.c \
+#    idle_sleep_notifications.c \
     ledwidget.cpp \
     main.cpp \
     mainwindow.cpp \
-    config_object.cpp
+    config_object.cpp \
+    terminal_debug.cpp
 
 HEADERS += \
     CivProtocol.h \
@@ -45,7 +59,8 @@ HEADERS += \
     ft991a_proxy.h \
     ledwidget.h \
     mainwindow.h \
-    config_object.h
+    config_object.h \
+    terminal_debug.h
 
 FORMS += \
     mainwindow.ui \

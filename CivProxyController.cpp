@@ -63,7 +63,7 @@ void CivProxyController::submit(
     const CivRequestContext &context,
     const RadioRequest &request)
 {
-    qDebug() << "CivProxyController::submit(): m_backend:" << m_backend;
+    // qDebug() << "CivProxyController::submit(): m_backend:" << m_backend;
     if (!m_backend) {
         emit requestFailed(context,
             QStringLiteral("CivProxyController::submit(): No radio backend selected"));
@@ -72,7 +72,7 @@ void CivProxyController::submit(
     }
 
     quint64 requestId = m_backend->submit(request);
-    qDebug() << "CivProxyController::submit(): backend called radio submit(): requestID:" << requestId;
+    // qDebug() << "CivProxyController::submit(): backend called radio submit(): requestID:" << requestId;
 
     // Insert this PendingRequest into our hash lookup table
     m_pending.insert(requestId, PendingRequest {context});
@@ -82,7 +82,7 @@ void CivProxyController::backendRequestCompleted(
         quint64 requestId,
         RadioResponse response)
 {
-    qDebug() << "CivProxyController::backendRequestCompleted(): Entered with requestID:" << requestId;
+    // qDebug() << "CivProxyController::backendRequestCompleted(): Entered with requestID:" << requestId;
     auto it = m_pending.find(requestId);
 
     if (it == m_pending.end()) {
@@ -98,7 +98,7 @@ void CivProxyController::backendRequestCompleted(
 
     m_pending.erase(it);
 
-    qDebug() << "CivProxyController::backendRequestCompleted(): About to emit responseReady";
+    // qDebug() << "CivProxyController::backendRequestCompleted(): About to emit responseReady";
     emit responseReady(context, response);  // Slot: CivProtocol::handleRadioResponse()
 }
 

@@ -1,11 +1,12 @@
 #include "Ft991Client.h"
 #include "Ft991CatCodec.h"
+#include "mainwindow.h"
 
 #include <QMetaObject>
 #include <QDebug>
 #include <type_traits>
 
-
+#ifndef ENABLE_FT991_SIM
 Ft991Client::Ft991Client(
     QIODevice *device,
     QObject *parent)
@@ -23,6 +24,7 @@ Ft991Client::Ft991Client(
         &QTimer::timeout,
         this,
         &Ft991Client::onTimeout);
+
 }
 
 
@@ -44,7 +46,9 @@ quint64 Ft991Client::submit(
     QString error;
 
     auto encoded = encodeRequest(request, error);
-    qDebug() << "Ft991Client::submit(): ID:" << id << radioRequestTypeName(request);
+
+    qDebug() << "Ft991Client::submit(): ID:" << id
+             << MainWindow::radioRequestTypeName(request);
 
     if (!encoded) {
         /*
@@ -54,7 +58,7 @@ quint64 Ft991Client::submit(
          * Emit asynchronously so submit() always
          * returns before completion/failure signals.
          */
-        qDebug() << "Ft991Client::submit(): ID:" << id << "encodeRequest Failed" << radioRequestTypeName(request);
+        qDebug() << "Ft991Client::submit(): ID:" << id << "encodeRequest Failed" << MainWindow::radioRequestTypeName(request);
         QMetaObject::invokeMethod(
             this,
             [this, id, error]() {
@@ -76,7 +80,7 @@ quint64 Ft991Client::submit(
         while (i.hasNext()) {
             PendingRequest p = i.next();
             qDebug() << "Ft991Client::submit():     ID:" << p.id
-                     << "Request:" << radioRequestTypeName(p.request)
+                     << "Request:" << MainWindow::radioRequestTypeName(p.request)
                      << "CAT:" << p.encoded.command;        }
     }
     pumpQueue();
@@ -144,15 +148,11 @@ Ft991Client::encodeRequest(
             //
             // SET MODE
             //
-            else if constexpr (
-                std::is_same_v<T, SetMode>)
+            else if constexpr (std::is_same_v<T, SetMode>)
             {
-                auto catMode =
-                    Ft991Cat::modeToCat(
-                        req.mode);
+                auto catMode = Ft991Cat::modeToCat(req.mode);
 
-                if (!catMode)
-                {
+                if (!catMode) {
                     error = QStringLiteral("Unsupported FT-991A mode");
                     return std::nullopt;
                 }
@@ -162,10 +162,7 @@ Ft991Client::encodeRequest(
                 command += *catMode;
                 command += ';';
 
-                return EncodedRequest {
-                    command,
-                    {}
-                };
+                return EncodedRequest {command, {} };
             }
 
 
@@ -201,7 +198,6 @@ Ft991Client::encodeRequest(
                 return EncodedRequest {cmd, {}};
             }
 
-
             //
             // SET TRANSMIT STATE
             //
@@ -213,12 +209,72 @@ Ft991Client::encodeRequest(
                 };
             }
 
+            //
+            //
+            // Select VFO Mode
+            //
+            else if constexpr (
+                std::is_same_v<T, SelectVfoMode>) {
+                return EncodedRequest {QByteArray("MA;"), {} };
+            }
 
-            else
+            //
+            // SET SPLIT MODE
+            //
+            else if constexpr (
+                std::is_same_v<T, SetSplit>)
             {
-                error =
-                    QStringLiteral("RadioRequest is not supported by the FT-991A client");
+                if ( req.split == false ) {
+                    return EncodedRequest {QByteArray("FT2;"), {} };
+                }
+                else {
+                    return EncodedRequest {QByteArray("FT3;"), {} };
+                }
+            }
 
+            /*
+             * SET Radio to VFO MODE via MA command
+             */
+            else if constexpr (
+                std::is_same_v<T, SetVfoModeViaMA>)
+            {
+                return EncodedRequest {QByteArray("MA;"), {} };
+            }
+
+            /*
+             * Select Memory Channel command
+             */
+            else if constexpr (
+                std::is_same_v<T, SetMemChannel>)
+            {
+                // Need the Channel number
+                int memCh = req.channel;
+                QByteArray cmd = "MC" + QByteArray::number(memCh).rightJustified(3, '0');
+                cmd.append(';');
+                qDebug() << "Ft991Client::encodeRequest(): formatted Mem Channel string:" << cmd.toHex();
+                return EncodedRequest {cmd, {}};
+            }
+
+            /*
+             * Select A/B command
+             */
+            else if constexpr (
+                std::is_same_v<T, SwapAB>)
+            {
+                return EncodedRequest {QByteArray("SV;"), {}};
+            }
+
+            /*
+             * Set Mode
+             */
+            else if constexpr (
+                std::is_same_v<T, SetMode>)
+            {
+                return EncodedRequest {QByteArray("MD0;"), {}};
+            }
+
+            else {
+                error = QStringLiteral("RadioRequest is not supported by the FT-991A client");
                 return std::nullopt;
             }
         },
@@ -268,9 +324,8 @@ void Ft991Client::pumpQueue()
 
     // Hand the CAT bytes to QSerialPort.
 
+    emit sendToLogger(command, "FT991A", Dir::out);
     qint64 written = m_device->write(command);
-
-    qDebug() << "Ft991Client::pumpQueue(): bytes written:" << written << command;
 
     if (written != command.size()) {
         failActive(
@@ -351,14 +406,10 @@ Ft991Client::decodeResponse(
                 std::is_same_v<T, GetFrequency>)
             {
                 QByteArray mnemonic =
-                    (req.vfo == Vfo::A)
-                        ? "FA"
-                        : "FB";
+                    (req.vfo == Vfo::A) ? "FA" : "FB";
 
                 auto hz =
-                    Ft991Cat::parseFrequencyAnswer(
-                        frame,
-                        mnemonic);
+                    Ft991Cat::parseFrequencyAnswer(frame, mnemonic);
 
                 if (!hz)
                 {
@@ -461,9 +512,7 @@ Ft991Client::decodeResponse(
                 }
 
                 return RadioResponse {
-                    TxResponse {
-                        state
-                    }
+                    TxResponse {state}
                 };
             }
 
@@ -557,7 +606,7 @@ void Ft991Client::finishActive(
 
     m_active.reset();
 
-    qDebug() << "Ft991Client::finishActive(): emit requestCompleted()";
+    // qDebug() << "Ft991Client::finishActive(): emit requestCompleted()";
     emit requestCompleted(id, response);
 
     //
@@ -604,9 +653,7 @@ void Ft991Client::onTimeout()
     if (!m_active)
         return;
 
-    const QString command =
-        QString::fromLatin1(
-            m_active->encoded.command);
+    const QString command = QString::fromLatin1(m_active->encoded.command);
 
     failActive(
         QStringLiteral(
@@ -646,8 +693,7 @@ void Ft991Client::feedBytes(
 
     while (true)
     {
-        qsizetype terminator =
-            m_rxBuffer.indexOf(';');
+        qsizetype terminator = m_rxBuffer.indexOf(';');
 
         if (terminator < 0)
             break;
@@ -661,13 +707,13 @@ void Ft991Client::feedBytes(
             first_valid_frame = true;
         }
         emit catRx(frame);
+        emit sendToLogger(data, "FT991A", Dir::in);
 
         // Nothing currently waiting for an answer.
         if (!m_active) {
             emit unsolicitedFrame(frame);
             continue;
         }
-
 
         // Not the answer we're currently expecting.
          if (!frameMatchesActiveRequest(frame)) {
@@ -695,43 +741,4 @@ void Ft991Client::feedBytes(
         finishActive(*response);
     }
 }
-
-QString Ft991Client::radioRequestTypeName(
-    const RadioRequest &request)
-{
-    return std::visit(
-        [](const auto &value) -> QString
-        {
-            using T =
-                std::decay_t<decltype(value)>;
-
-            if constexpr (std::is_same_v<T, GetFrequency>)
-                return "GetFrequency";
-
-            else if constexpr (std::is_same_v<T, SetFrequency>)
-                return "SetFrequency";
-
-            else if constexpr (std::is_same_v<T, GetMode>)
-                return "GetMode";
-
-            else if constexpr (std::is_same_v<T, SetMode>)
-                return "SetMode";
-
-            else if constexpr (std::is_same_v<T, GetRfPower>)
-                return "GetRfPower";
-
-            else if constexpr (std::is_same_v<T, SetRfPower>)
-                return "SetRfPower";
-
-            else if constexpr (std::is_same_v<T, GetTx>)
-                return "GetTx";
-
-            else if constexpr (std::is_same_v<T, SetTx>)
-                return "SetTx";
-
-            else
-                return "Unknown";
-        },
-        request);
-}
-
+#endif  // ENABLE_FT991_SIM

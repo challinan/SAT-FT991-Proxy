@@ -4,9 +4,10 @@
 
 
 SerialPort::SerialPort(
-    QObject *parent)
+    QObject *parent, TerminalDebug *pTermDebug)
     : QObject(parent),
-    m_serialport(this)
+    m_serialport(this),
+    m_termDebug(pTermDebug)
 {
     connect(
         &m_serialport,
@@ -21,24 +22,6 @@ SerialPort::SerialPort(
         this,
         &SerialPort::onError);
 
-#if 0
-    connect(
-        &m_serialport,
-        &QIODevice::aboutToClose,
-        this,
-        [this]()
-        {
-            qWarning()
-            << "*************** QSerialPort ABOUT TO CLOSE ******************"
-            << "port =" << m_serialport.portName()
-            << "this =" << this
-            << "QSerialPort =" << &m_serialport
-            << "isOpen =" << m_serialport.isOpen()
-            << "openMode =" << m_serialport.openMode()
-            << "error =" << m_serialport.error()
-            << "errorString =" << m_serialport.errorString();
-        });
-#endif
 }
 
 
@@ -67,29 +50,14 @@ bool SerialPort::open(
 
     m_settings = settings;
 
+    m_serialport.setPortName(settings.portName);
+    m_serialport.setBaudRate(settings.baudRate);
+    m_serialport.setDataBits(settings.dataBits);
+    m_serialport.setParity(settings.parity);
+    m_serialport.setStopBits(settings.stopBits);
+    m_serialport.setFlowControl(settings.flowControl);
 
-    m_serialport.setPortName(
-        settings.portName);
-
-    m_serialport.setBaudRate(
-        settings.baudRate);
-
-    m_serialport.setDataBits(
-        settings.dataBits);
-
-    m_serialport.setParity(
-        settings.parity);
-
-    m_serialport.setStopBits(
-        settings.stopBits);
-
-    m_serialport.setFlowControl(
-        settings.flowControl);
-
-
-    if (!m_serialport.open(
-            QIODevice::ReadWrite))
-    {
+    if (!m_serialport.open(QIODevice::ReadWrite)) {
         emit errorOccurred(
             QStringLiteral(
                 "Unable to open %1: %2")
@@ -194,12 +162,10 @@ SerialPort::serialPort() const
  */
 void SerialPort::onReadyRead()
 {
-    QByteArray data =
-        m_serialport.readAll();
+    const QByteArray data = m_serialport.readAll();
 
     if (data.isEmpty())
         return;
-
 
     emit bytesReceived(data);
 }
@@ -216,23 +182,23 @@ void SerialPort::onReadyRead()
 qint64 SerialPort::write(
     const QByteArray &data)
 {
-    if (!m_serialport.isOpen())
-    {
+    static int count = 0;
+    if (!m_serialport.isOpen()) {
         emit errorOccurred(
             QStringLiteral(
-                "SerialPort::write(): [%1] Attempt to write to closed serial port").arg(this->portName()));
-
+                "SerialPort::write(): [%1] Attempt to write to closed serial port").arg(portName()));
         return -1;
     }
 
-    // qDebug() << "SerialPort::write():" << this->portName() << "Entered with" << data;
+    if ( data.contains("\xFE\xFE\xA2\xE0\x03\xfd") ) {
+        qDebug() << "SerialPort::write(): *************** SHOULD NEVER GET HERE 1 ************************";
+        Q_ASSERT_X(0, "This is SerialPort::write()", "Invalid packet being sent out the serial port");
+    }
 
-    qint64 result =
-        m_serialport.write(data);
+    qint64 result = m_serialport.write(data);
 
-
-    if (result < 0)
-    {
+    Q_ASSERT_X(result, "This is SerialPort::write()", "Serial Port Write Failed");
+    if (result < 0) {
         emit errorOccurred(
             QStringLiteral(
                 "Serial write failed: %1")
@@ -242,13 +208,15 @@ qint64 SerialPort::write(
         return result;
     }
 
-
-    if (result > 0)
-    {
-        emit bytesTransmitted(
-            data.left(result));
+    if (result > 0) {
+        emit bytesTransmitted(data.left(result));
+        // The errant SAT-OUT is not coming from here
+        if ( data.contains("\xFE\xFE\xA2\xE0\x03\xfd") ) {
+            qDebug() << "SerialPort::write(): *************** SHOULD NEVER GET HERE 2 ************************";
+            Q_ASSERT_X(0, "", "SerialPort::write(): Invalid packet being sent to logger");
+        }
+        emit sendToLogger(data, portHumanName, Dir::out);
     }
-
 
     return result;
 }
@@ -277,10 +245,7 @@ void SerialPort::onError(
     QString message =
         QStringLiteral(
             "Serial port %1: %2")
-            .arg(
-                m_serialport.portName(),
-                m_serialport.errorString());
-
+            .arg(portName(), m_serialport.errorString());
 
     emit errorOccurred(
         message);
